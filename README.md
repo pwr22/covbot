@@ -4,6 +4,8 @@ Matrix bot tracking SARS-COV-2 statistics using data from https://offloop.net/co
 
 Running as [@covbot:shortestpath.dev](https://matrix.to/#/@covbot:shortestpath.dev).
 
+![screenshot](screenshot.png "Asking @covbot:shortestpath.dev about cases in the US")
+
 ## Usage
 
 Message `!cases` or `!cases <location>` and the bot replies. E.g. `!cases US`.
