@@ -107,7 +107,7 @@ class CovBot(Plugin):
         match, data = self._get_data_for(location)
 
         if data == None:
-            await event.respond(f'There are no cases in {location} - pester @pwr22:shortestpath.dev if you think this is wrong!')
+            await event.respond(f'There are no cases in {location} - pester @pwr22:shortestpath.dev if you think this is wrong! (fuzzy matching is pretty bad at the moment - will be improved soon)')
             return
 
         cases, recoveries, deaths, last_update = data['cases'], data[
