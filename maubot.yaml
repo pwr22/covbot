@@ -1,0 +1,10 @@
+maubot: 0.1.0
+id: dev.shortestpath.covbot
+version: 0.0.1
+license: MIT
+modules:
+- covbot
+main_class: CovBot
+database: false
+extra_files:
+- LICENSE
