@@ -117,6 +117,7 @@ class CovBot(Plugin):
         sick = 100 - recovered - dead
         s = f'In {match} there have been a total of {cases} cases as of {last_update} UTC.'
         s += f' Of these {sick:.1f}% are still sick, {recovered:.1f}% have recovered and {dead:.1f}% have died.'
-        s += f' Check out https://offloop.net/covid19/ for graphs!'
+        # TODO put data source info somewhere else - auto-expansion of URLs can make these messages consume a lot of space
+        # s += f' Check out https://offloop.net/covid19/ for graphs!'
 
         await event.respond(s)
