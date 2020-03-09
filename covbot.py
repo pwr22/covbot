@@ -2,16 +2,23 @@ from mautrix.types import EventType
 from maubot import Plugin, MessageEvent
 from maubot.handlers import event, command
 
+import os
 import csv
 import requests
 import pprint
 import datetime
+import whoosh
+from whoosh.fields import Schema, TEXT
+from whoosh.index import create_in, FileIndex
+from whoosh.qparser import QueryParser
 
 
 class CovBot(Plugin):
     groups = {}
     cases = {}
     next_update_at: datetime.datetime = None
+    schema: Schema = Schema(country=TEXT(stored=True), area=TEXT(stored=True))
+    index: FileIndex = None
 
     @staticmethod
     def _get_country_groups():
@@ -25,9 +32,14 @@ class CovBot(Plugin):
 
         return groups
 
-    @staticmethod
-    def _get_case_data():
+    def _get_case_data(self):
         countries = {}
+
+        d = '/tmp/covbotindex'
+        if not os.path.exists(d):
+            os.mkdir(d)
+        self.index = create_in(d, self.schema)
+        i_writer = self.index.writer()
 
         r = requests.get('http://offloop.net/covid19h/unconfirmed.csv')
         # Country;Province;Confirmed;Deaths;Recovered;LastUpdated
@@ -36,9 +48,11 @@ class CovBot(Plugin):
         for row in cr:
             country = row['Country']
             if not country in countries:
-                countries[country] = {'areas': {}}
+                countries[country] = {'totals': {
+                    'cases': 0, 'recoveries': 0, 'deaths': 0}, 'areas': {}}
 
-            cases, deaths, recoveries = (int(n) for n in (row[k] for k in ('Confirmed', 'Deaths', 'Recovered')))
+            cases, deaths, recoveries = (int(n) for n in (
+                row[k] for k in ('Confirmed', 'Deaths', 'Recovered')))
 
             epoch = int(int(row['LastUpdated']) / 1000)
             last_update = datetime.datetime.utcfromtimestamp(epoch)
@@ -47,10 +61,23 @@ class CovBot(Plugin):
             if area == '':
                 countries[country]['totals'] = {
                     'cases': cases, 'deaths': deaths, 'recoveries': recoveries, 'last_update': last_update}
+                i_writer.add_document(country=country)
             else:
                 countries[country]['areas'][area] = {
                     'cases': cases, 'deaths': deaths, 'recoveries': recoveries, 'last_update': last_update}
+                countries[country]['totals']['cases'] += cases
+                countries[country]['totals']['deaths'] += deaths
+                countries[country]['totals']['recoveries'] += recoveries
 
+                if 'last_update' in countries[country]['totals']:
+                    countries[country]['totals']['last_update'] = max(
+                        countries[country]['totals']['last_update'], last_update)
+                else:
+                    countries[country]['totals']['last_update'] = last_update
+
+                i_writer.add_document(country=country, area=area)
+
+        i_writer.commit()
         return countries
 
     def _update_data(self):
@@ -65,37 +92,21 @@ class CovBot(Plugin):
             self.log.info('too early to update - using cached data')
 
     def _get_data_for(self, location: str) -> (str, dict):
-        # first check for an exact match on the country name
-        for country, data in self.cases.items():
+        # try exact country match
+        for country in self.cases:
             if country.lower() == location.lower():
-                return country, data['totals']
+                return country, self.cases[country]['totals']
 
-        # then check for an exact match on the area
-        for country, data in self.cases.items():
-            for area, data in data['areas'].items():
-                if area.lower() == location.lower():
-                    return f'{area}, {country}', data
+        # try wildcard country match
+        with self.index.searcher() as s:
+            q = QueryParser("country", self.schema).parse(f'*{location}*')
+            matches = s.search(q)
 
-        # then do a substring match on country
-        for country, data in self.cases.items():
-            if location.lower() in country.lower():
-                return country, data['totals']
+            if len(matches) == 0:
+                return '', None
 
-        # then do a substring match on area
-        for country, data in self.cases.items():
-            for area, data in data['areas'].items():
-                if location.lower() in area.lower():
-                    return f'{area}, {country}', data
-
-        # then do a substring match on area + country
-        for country, data in self.cases.items():
-            for area, data in data['areas'].items():
-                s = f'{area}, {country}'
-
-                if location.lower() in s.lower():
-                    return s, data
-
-        return '', None
+            country = matches[0]['country']
+            return country, self.cases[country]['totals']
 
     @command.new('cases', help='Get information on cases')
     @command.argument("location", pass_raw=True, required=False)
@@ -107,7 +118,7 @@ class CovBot(Plugin):
         match, data = self._get_data_for(location)
 
         if data == None:
-            await event.respond(f'There are no cases in {location} - pester @pwr22:shortestpath.dev if you think this is wrong! (fuzzy matching is pretty bad at the moment - will be improved soon)')
+            await event.respond(f'I have no data on {location} or there are no cases. If you can try a less specific location and if you are sure I am wrong then pester @pwr22:shortestpath.dev! (fuzzy matching is pretty bad at the moment - will be improved soon)')
             return
 
         cases, recoveries, deaths, last_update = data['cases'], data[

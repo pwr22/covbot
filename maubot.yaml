@@ -1,10 +1,12 @@
 maubot: 0.1.0
 id: dev.shortestpath.covbot
-version: 0.0.1
+version: 0.0.2
 license: MIT
 modules:
 - covbot
 main_class: CovBot
+dependencies:
+- whoosh
 database: false
 extra_files:
 - LICENSE
