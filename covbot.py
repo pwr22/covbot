@@ -114,21 +114,18 @@ class CovBot(Plugin):
 
         self._update_data()
         matches = self._get_data_for(location)
+        # filter out duplicates per country as we ignore regions for now
+        uniq_locs = tuple(set(m[0] for m in matches))
 
-        if len(matches) == 0:
+        if len(uniq_locs) == 0:
             await event.respond(f'I have no data on {location} or there are no cases. If you can try a less specific location and if you are sure I am wrong then pester @pwr22:shortestpath.dev! (fuzzy matching is pretty bad at the moment - will be improved soon)')
             return
-        elif len(matches) > 1:
-            uniq_locs = tuple(set(m[0] for m in matches))
+        elif len(uniq_locs) > 1:
             ms = " - ".join(uniq_locs)
             await event.respond(f"Which of these did you mean? {ms}")
             return
 
         m_loc, data = matches[0]
-
-        self.log.debug('m_loc: %s', m_loc)
-        self.log.debug('data: %s', data)
-
         cases, recoveries, deaths, last_update = data['cases'], data[
             'recoveries'], data['deaths'], data['last_update']
         recovered = 0 if cases == 0 else int(recoveries) / int(cases) * 100

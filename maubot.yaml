@@ -1,5 +1,5 @@
 maubot: 0.1.0
-id: dev.shortestpath.covbot.test
+id: dev.shortestpath.covbot
 version: 0.0.4
 license: MIT
 modules:
