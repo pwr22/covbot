@@ -65,16 +65,6 @@ class CovBot(Plugin):
             else:
                 countries[country]['areas'][area] = {
                     'cases': cases, 'deaths': deaths, 'recoveries': recoveries, 'last_update': last_update}
-                countries[country]['totals']['cases'] += cases
-                countries[country]['totals']['deaths'] += deaths
-                countries[country]['totals']['recoveries'] += recoveries
-
-                if 'last_update' in countries[country]['totals']:
-                    countries[country]['totals']['last_update'] = max(
-                        countries[country]['totals']['last_update'], last_update)
-                else:
-                    countries[country]['totals']['last_update'] = last_update
-
                 i_writer.add_document(country=country, area=area)
 
         i_writer.commit()
