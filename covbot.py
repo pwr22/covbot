@@ -82,21 +82,29 @@ class CovBot(Plugin):
             self.log.info('too early to update - using cached data')
 
     def _get_data_for(self, location: str) -> (str, dict):
+        lc_loc = location.lower()
+
         # try exact country match
         for country in self.cases:
-            if country.lower() == location.lower():
-                return country, self.cases[country]['totals']
+            if country.lower() == lc_loc:
+                return ((country, self.cases[country]['totals']),)
+
+        # try exact area match
+        # areas = []
+        # for country in self.cases:
+        #     for area in country['areas']:
+        #         if area.lower() == lc_loc:
+        #             areas.append(country)
+
+        # if len(areas) > 1:
+        #     return ( (c, d) for c, d in   )
 
         # try wildcard country match
         with self.index.searcher() as s:
             q = QueryParser("country", self.schema).parse(f'*{location}*')
             matches = s.search(q)
 
-            if len(matches) == 0:
-                return '', None
-
-            country = matches[0]['country']
-            return country, self.cases[country]['totals']
+            return tuple((m['country'], self.cases[m['country']]['totals']) for m in matches)
 
     @command.new('cases', help='Get information on cases')
     @command.argument("location", pass_raw=True, required=False)
@@ -105,18 +113,23 @@ class CovBot(Plugin):
             location = "World"
 
         self._update_data()
-        match, data = self._get_data_for(location)
+        matches = self._get_data_for(location)
 
-        if data == None:
+        if len(matches) == 0:
             await event.respond(f'I have no data on {location} or there are no cases. If you can try a less specific location and if you are sure I am wrong then pester @pwr22:shortestpath.dev! (fuzzy matching is pretty bad at the moment - will be improved soon)')
             return
+
+        m_loc, data = matches[0]
+
+        self.log.debug('m_loc: %s', m_loc)
+        self.log.debug('data: %s', data)
 
         cases, recoveries, deaths, last_update = data['cases'], data[
             'recoveries'], data['deaths'], data['last_update']
         recovered = 0 if cases == 0 else int(recoveries) / int(cases) * 100
         dead = 0 if cases == 0 else int(deaths) / int(cases) * 100
         sick = 100 - recovered - dead
-        s = f'In {match} there have been a total of {cases} cases as of {last_update} UTC.'
+        s = f'In {m_loc} there have been a total of {cases} cases as of {last_update} UTC.'
         s += f' Of these {sick:.1f}% are still sick, {recovered:.1f}% have recovered and {dead:.1f}% have died.'
         # TODO put data source info somewhere else - auto-expansion of URLs can make these messages consume a lot of space
         # s += f' Check out https://offloop.net/covid19/ for graphs!'
