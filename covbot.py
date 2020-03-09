@@ -118,6 +118,11 @@ class CovBot(Plugin):
         if len(matches) == 0:
             await event.respond(f'I have no data on {location} or there are no cases. If you can try a less specific location and if you are sure I am wrong then pester @pwr22:shortestpath.dev! (fuzzy matching is pretty bad at the moment - will be improved soon)')
             return
+        elif len(matches) > 1:
+            uniq_locs = tuple(set(m[0] for m in matches))
+            ms = " - ".join(uniq_locs)
+            await event.respond(f"Which of these did you mean? {ms}")
+            return
 
         m_loc, data = matches[0]
 
