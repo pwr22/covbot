@@ -90,14 +90,14 @@ class CovBot(Plugin):
                 return ((country, self.cases[country]['totals']),)
 
         # try exact area match
-        # areas = []
-        # for country in self.cases:
-        #     for area in country['areas']:
-        #         if area.lower() == lc_loc:
-        #             areas.append(country)
+        areas = []
+        for country, d in self.cases.items():
+            for area, d in d['areas'].items():
+                if area.lower() == lc_loc:
+                    areas.append((f'{area}, {country}', d))
 
-        # if len(areas) > 1:
-        #     return ( (c, d) for c, d in   )
+        if len(areas) > 0:
+            return areas
 
         # try wildcard country match
         with self.index.searcher() as s:
