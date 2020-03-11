@@ -129,7 +129,11 @@ class CovBot(Plugin):
         if location == "":
             location = "World"
 
-        self._update_data()
+        try:
+            self._update_data()
+        except Exception as e:
+            self.log.error('failed to update data: %s', e)
+
         matches = self._get_data_for(location)
 
         if len(matches) == 0:
