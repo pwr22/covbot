@@ -101,7 +101,8 @@ class CovBot(Plugin):
 
         # try wildcard country match
         with self.index.searcher() as s:
-            q = QueryParser("country", self.schema).parse(f'*{location}*')
+            qs = f'*{location}*'
+            q = QueryParser("country", self.schema).parse(qs)
             matches = s.search(q)
 
             countries = tuple((m['country'], self.cases[m['country']]['totals']) for m in matches)
@@ -111,10 +112,11 @@ class CovBot(Plugin):
 
         # try wildcard area match
         with self.index.searcher() as s:
-            q = QueryParser("area", self.schema).parse(f'*{location}*')
+            qs = f'*{location}*'
+            q = QueryParser("area", self.schema).parse(qs)
             matches = s.search(q)
 
-            countries = tuple((m['area'] + ', ' + m['country'], self.cases[m['country']]['areas'][m['area']]) for m in matches)
+            countries = tuple((m['area'], self.cases[m['country']]['areas'][m['area']]) for m in matches)
 
             if len(countries) > 0:
                 return countries
