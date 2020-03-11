@@ -133,7 +133,7 @@ class CovBot(Plugin):
         matches = self._get_data_for(location)
 
         if len(matches) == 0:
-            await event.respond(f'I have no data on {location} or there are no cases. If you can try a less specific location and if you are sure I am wrong then pester @pwr22:shortestpath.dev! (fuzzy matching is pretty bad at the moment - will be improved soon)')
+            await event.respond(f'I have searched my data but cannot find a match for {location}. It might be under a different name or there may be no cases! If I am wrong let @pwr22:shortestpath.dev know.')
             return
         elif len(matches) > 1:
             ms = " - ".join(m[0] for m in matches)
