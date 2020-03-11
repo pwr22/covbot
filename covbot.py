@@ -104,7 +104,22 @@ class CovBot(Plugin):
             q = QueryParser("country", self.schema).parse(f'*{location}*')
             matches = s.search(q)
 
-            return tuple((m['country'], self.cases[m['country']]['totals']) for m in matches)
+            countries = tuple((m['country'], self.cases[m['country']]['totals']) for m in matches)
+
+            if len(countries) > 0:
+                return countries
+
+        # try wildcard area match
+        with self.index.searcher() as s:
+            q = QueryParser("area", self.schema).parse(f'*{location}*')
+            matches = s.search(q)
+
+            countries = tuple((m['area'] + ', ' + m['country'], self.cases[m['country']]['areas'][m['area']]) for m in matches)
+
+            if len(countries) > 0:
+                return countries
+
+        return ()
 
     @command.new('cases', help='Get information on cases')
     @command.argument("location", pass_raw=True, required=False)
@@ -114,14 +129,12 @@ class CovBot(Plugin):
 
         self._update_data()
         matches = self._get_data_for(location)
-        # filter out duplicates per country as we ignore regions for now
-        uniq_locs = tuple(set(m[0] for m in matches))
 
-        if len(uniq_locs) == 0:
+        if len(matches) == 0:
             await event.respond(f'I have no data on {location} or there are no cases. If you can try a less specific location and if you are sure I am wrong then pester @pwr22:shortestpath.dev! (fuzzy matching is pretty bad at the moment - will be improved soon)')
             return
-        elif len(uniq_locs) > 1:
-            ms = " - ".join(uniq_locs)
+        elif len(matches) > 1:
+            ms = " - ".join(m[0] for m in matches)
             await event.respond(f"Which of these did you mean? {ms}")
             return
 
