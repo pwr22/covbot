@@ -147,7 +147,7 @@ class CovBot(Plugin):
         dead = 0 if cases == 0 else int(deaths) / int(cases) * 100
         sick = 100 - recovered - dead
         s = f'In {m_loc} there have been a total of {cases} cases as of {last_update} UTC.'
-        s += f' Of these {sick:.1f}% are still sick, {recovered:.1f}% have recovered and {dead:.1f}% have died.'
+        s += f' Of these {sick:.1f}% are still sick or may have recovered without being recorded, {recovered:.1f}% have definitely recovered and {dead:.1f}% have died.'
         # TODO put data source info somewhere else - auto-expansion of URLs can make these messages consume a lot of space
         # s += f' Check out https://offloop.net/covid19/ for graphs!'
 
