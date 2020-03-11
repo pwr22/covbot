@@ -133,6 +133,7 @@ class CovBot(Plugin):
             self._update_data()
         except Exception as e:
             self.log.error('failed to update data: %s', e)
+            await event.respond('Something went wrong fetching the latest data so stats may be outdated.')
 
         matches = self._get_data_for(location)
 
