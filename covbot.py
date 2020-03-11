@@ -52,7 +52,7 @@ class CovBot(Plugin):
                 countries[country] = {'totals': {
                     'cases': 0, 'recoveries': 0, 'deaths': 0}, 'areas': {}}
 
-            cases, deaths, recoveries = (int(n) for n in (
+            cases, deaths, recoveries = (0 if n == '' else int(n) for n in (
                 row[k] for k in ('Confirmed', 'Deaths', 'Recovered')))
 
             epoch = int(int(row['LastUpdated']) / 1000)
