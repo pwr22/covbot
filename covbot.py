@@ -42,9 +42,10 @@ class CovBot(Plugin):
         i_writer = self.index.writer()
 
         r = requests.get('http://offloop.net/covid19h/unconfirmed.csv')
+        l = r.content.decode('utf-8').splitlines()
+
         # Country;Province;Confirmed;Deaths;Recovered;LastUpdated
-        cr = csv.DictReader(r.content.decode(
-            'utf-8').splitlines(), delimiter=';')
+        cr = csv.DictReader(l, delimiter=';')
         for row in cr:
             country = row['Country']
             if not country in countries:
@@ -105,7 +106,8 @@ class CovBot(Plugin):
             q = QueryParser("country", self.schema).parse(qs)
             matches = s.search(q)
 
-            countries = tuple((m['country'], self.cases[m['country']]['totals']) for m in matches)
+            countries = tuple(
+                (m['country'], self.cases[m['country']]['totals']) for m in matches)
 
             if len(countries) > 0:
                 return countries
@@ -116,7 +118,8 @@ class CovBot(Plugin):
             q = QueryParser("area", self.schema).parse(qs)
             matches = s.search(q)
 
-            countries = tuple((m['area'], self.cases[m['country']]['areas'][m['area']]) for m in matches)
+            countries = tuple(
+                (m['area'], self.cases[m['country']]['areas'][m['area']]) for m in matches)
 
             if len(countries) > 0:
                 return countries
