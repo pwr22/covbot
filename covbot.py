@@ -19,7 +19,8 @@ class CovBot(Plugin):
     groups = {}
     cases = {}
     next_update_at: datetime.datetime = None
-    schema: Schema = Schema(country=TEXT(stored=True), area=TEXT(stored=True))
+    schema: Schema = Schema(country=TEXT(stored=True), area=TEXT(
+        stored=True), location=TEXT(stored=True))
     index: FileIndex = None
 
     @staticmethod
@@ -36,12 +37,6 @@ class CovBot(Plugin):
 
     def _get_case_data(self):
         countries = {}
-
-        d = '/tmp/covbotindex'
-        if not os.path.exists(d):
-            os.mkdir(d)
-        self.index = create_in(d, self.schema)
-        i_writer = self.index.writer()
 
         r = requests.get(CASE_DATA_URL)
         l = r.content.decode('utf-8').splitlines()
@@ -64,22 +59,44 @@ class CovBot(Plugin):
             if area == '':
                 countries[country]['totals'] = {
                     'cases': cases, 'deaths': deaths, 'recoveries': recoveries, 'last_update': last_update}
-                i_writer.add_document(country=country)
             else:
                 countries[country]['areas'][area] = {
                     'cases': cases, 'deaths': deaths, 'recoveries': recoveries, 'last_update': last_update}
-                i_writer.add_document(country=country, area=area)
 
-        i_writer.commit()
         return countries
+
+    def _update_index(self):
+        # create a new index
+        d = '/tmp/covbotindex'
+        if not os.path.exists(d):
+            os.mkdir(d)
+        self.index = create_in(d, self.schema)
+        idx_w = self.index.writer()
+
+        # add all the documents
+        for c, c_data in self.cases.items():
+            # TODO should this be conditional on a record existing?
+            idx_w.add_document(country=c, location=c)
+            for a in c_data['areas']:
+                l = f'{a}, {c}'
+                idx_w.add_document(country=c, area=a, location=l)
+
+        idx_w.commit()
 
     def _update_data(self):
         now = datetime.datetime.utcnow()
 
         if self.next_update_at == None or now >= self.next_update_at:
             self.log.info('updating data')
-            self.groups = self._get_country_groups()
-            self.cases = self._get_case_data()
+
+            # first try to get them incase we fail
+            groups = self._get_country_groups()
+            cases = self._get_case_data()
+
+            # we got all the data we need so save it
+            self.groups = groups
+            self.cases = cases
+            self._update_index()
             self.next_update_at = now + datetime.timedelta(minutes=15)
         else:
             self.log.info('too early to update - using cached data')
@@ -102,31 +119,27 @@ class CovBot(Plugin):
         if len(areas) > 0:
             return areas
 
-        # try wildcard country match
+        # try wildcard location match
         with self.index.searcher() as s:
             qs = f'*{location}*'
-            q = QueryParser("country", self.schema).parse(qs)
+            q = QueryParser("location", self.schema).parse(qs)
             matches = s.search(q)
 
-            countries = tuple(
-                (m['country'], self.cases[m['country']]['totals']) for m in matches)
+            locs = []
+            for m in matches:
+                c, l = m['country'], m['location']
 
-            if len(countries) > 0:
-                return countries
+                if 'area' in m:
+                    d = self.cases[c]['areas'][m['area']]
+                else:
+                    d = self.cases[c]['totals']
 
-        # try wildcard area match
-        with self.index.searcher() as s:
-            qs = f'*{location}*'
-            q = QueryParser("area", self.schema).parse(qs)
-            matches = s.search(q)
+                locs.append((l, d))
+                
+            if len(locs) > 0:
+                return locs
 
-            countries = tuple(
-                (m['area'], self.cases[m['country']]['areas'][m['area']]) for m in matches)
-
-            if len(countries) > 0:
-                return countries
-
-        return ()
+        return []
 
     @command.new('cases', help='Get current information on cases.')
     @command.argument("location", pass_raw=True, required=False)
@@ -174,9 +187,9 @@ class CovBot(Plugin):
         s += f' I fetch new data every 15 minutes from {CASE_DATA_URL}.'
         await event.respond(s)
 
+    # TODO make less clever and one line per command
     @command.new('help', help='Get usage help using me.')
     async def help_handler(self, event: MessageEvent) -> None:
         for h in self.cases_handler, self.source_handler, self.help_handler:
             s = h.__mb_full_help__ + ' - ' + h.__mb_help__
             await event.respond(s)
-
