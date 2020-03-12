@@ -123,7 +123,7 @@ class CovBot(Plugin):
         with self.index.searcher() as s:
             qs = f'*{location}*'
             q = QueryParser("location", self.schema).parse(qs)
-            matches = s.search(q)
+            matches = s.search(q, limit=None)
 
             locs = []
             for m in matches:
