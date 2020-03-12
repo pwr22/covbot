@@ -12,6 +12,8 @@ from whoosh.fields import Schema, TEXT
 from whoosh.index import create_in, FileIndex
 from whoosh.qparser import QueryParser
 
+CASE_DATA_URL = 'http://offloop.net/covid19h/unconfirmed.csv'
+
 
 class CovBot(Plugin):
     groups = {}
@@ -41,7 +43,7 @@ class CovBot(Plugin):
         self.index = create_in(d, self.schema)
         i_writer = self.index.writer()
 
-        r = requests.get('http://offloop.net/covid19h/unconfirmed.csv')
+        r = requests.get(CASE_DATA_URL)
         l = r.content.decode('utf-8').splitlines()
 
         # Country;Province;Confirmed;Deaths;Recovered;LastUpdated
@@ -126,7 +128,7 @@ class CovBot(Plugin):
 
         return ()
 
-    @command.new('cases', help='Get information on cases')
+    @command.new('cases', help='Get current information on cases.')
     @command.argument("location", pass_raw=True, required=False)
     async def cases_handler(self, event: MessageEvent, location: str) -> None:
         if location == "":
@@ -164,4 +166,10 @@ class CovBot(Plugin):
         # TODO put data source info somewhere else - auto-expansion of URLs can make these messages consume a lot of space
         # s += f' Check out https://offloop.net/covid19/ for graphs!'
 
+        await event.respond(s)
+
+    @command.new('source', help='Get source code of bot and the data used.')
+    async def source_handler(self, event: MessageEvent) -> None:
+        s = 'I am MIT licensed on Github at https://github.com/pwr22/covbot.'
+        s += f' I fetch new data every 15 minutes from {CASE_DATA_URL}.'
         await event.respond(s)
