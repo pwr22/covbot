@@ -168,8 +168,15 @@ class CovBot(Plugin):
 
         await event.respond(s)
 
-    @command.new('source', help='Get source code of bot and the data used.')
+    @command.new('source', help='Get my source code and the data I use.')
     async def source_handler(self, event: MessageEvent) -> None:
         s = 'I am MIT licensed on Github at https://github.com/pwr22/covbot.'
         s += f' I fetch new data every 15 minutes from {CASE_DATA_URL}.'
         await event.respond(s)
+
+    @command.new('help', help='Get usage help using me.')
+    async def help_handler(self, event: MessageEvent) -> None:
+        for h in self.cases_handler, self.source_handler, self.help_handler:
+            s = h.__mb_full_help__ + ' - ' + h.__mb_help__
+            await event.respond(s)
+
