@@ -7,12 +7,14 @@ import csv
 import requests
 import pprint
 import datetime
+import asyncio
 import whoosh
 from whoosh.fields import Schema, TEXT
 from whoosh.index import create_in, FileIndex
 from whoosh.qparser import QueryParser
 
 CASE_DATA_URL = 'http://offloop.net/covid19h/unconfirmed.csv'
+GROUPS_URL = 'https://offloop.net/covid19h/groups.txt'
 
 
 class CovBot(Plugin):
@@ -23,23 +25,28 @@ class CovBot(Plugin):
         stored=True), location=TEXT(stored=True))
     index: FileIndex = None
 
-    @staticmethod
-    def _get_country_groups():
+    async def _get_country_groups(self):
         groups = {}
 
-        r = requests.get('https://offloop.net/covid19h/groups.txt')
-        # group;country_1;country_2 ...
-        cr = csv.reader(r.content.decode('utf-8').splitlines(), delimiter=';')
-        for group, *areas in cr:
-            groups[group] = areas
+        self.log.debug("fetching %s", GROUPS_URL)
+        async with self.http.get(GROUPS_URL) as r:
+            t = await r.text()
+
+            # group;country_1;country_2 ...
+            cr = csv.reader(t.splitlines(), delimiter=';')
+            for group, *areas in cr:
+                groups[group] = areas
 
         return groups
 
-    def _get_case_data(self):
+    async def _get_case_data(self):
         countries = {}
 
-        r = requests.get(CASE_DATA_URL)
-        l = r.content.decode('utf-8').splitlines()
+        self.log.debug("fetching %s", CASE_DATA_URL)
+        l = None
+        async with self.http.get(CASE_DATA_URL) as r:
+            t = await r.text()
+            l = t.splitlines()
 
         # Country;Province;Confirmed;Deaths;Recovered;LastUpdated
         cr = csv.DictReader(l, delimiter=';')
@@ -83,19 +90,12 @@ class CovBot(Plugin):
 
         idx_w.commit()
 
-    def _update_data(self):
+    async def _update_data(self):
         now = datetime.datetime.utcnow()
 
         if self.next_update_at == None or now >= self.next_update_at:
             self.log.info('updating data')
-
-            # first try to get them incase we fail
-            groups = self._get_country_groups()
-            cases = self._get_case_data()
-
-            # we got all the data we need so save it
-            self.groups = groups
-            self.cases = cases
+            self.groups, self.cases = await asyncio.gather(self._get_country_groups(), self._get_case_data())
             self._update_index()
             self.next_update_at = now + datetime.timedelta(minutes=15)
         else:
@@ -135,7 +135,7 @@ class CovBot(Plugin):
                     d = self.cases[c]['totals']
 
                 locs.append((l, d))
-                
+
             if len(locs) > 0:
                 return locs
 
@@ -148,7 +148,7 @@ class CovBot(Plugin):
             location = "World"
 
         try:
-            self._update_data()
+            await self._update_data()
         except Exception as e:
             self.log.error('failed to update data: %s', e)
             await event.respond('Something went wrong fetching the latest data so stats may be outdated.')
