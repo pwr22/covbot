@@ -77,6 +77,7 @@ class CovBot(Plugin):
         d = '/tmp/covbotindex'
         if not os.path.exists(d):
             os.mkdir(d)
+
         self.index = create_in(d, self.schema)
         idx_w = self.index.writer()
 
@@ -96,7 +97,11 @@ class CovBot(Plugin):
         if self.next_update_at == None or now >= self.next_update_at:
             self.log.info('updating data')
             self.groups, self.cases = await asyncio.gather(self._get_country_groups(), self._get_case_data())
-            self._update_index()
+            
+            # one we've got the data we can update the index
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, lambda: self._update_index())
+            
             self.next_update_at = now + datetime.timedelta(minutes=15)
         else:
             self.log.info('too early to update - using cached data')
