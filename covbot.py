@@ -184,20 +184,19 @@ class CovBot(Plugin):
         per_dead = 0 if cases == 0 else int(deaths) / int(cases) * 100
         per_sick = 100 - per_rec - per_dead
 
-        s = f'In {m_loc} there have been a total of {cases:,} cases as of {last_update} UTC.'
-        s += f' Of these {sick:,} ({per_sick:.1f}%) are still sick or may have recovered without being recorded,'
-        s += f' {recoveries:,} ({per_rec:.1f}%) have definitely recovered'
-        s += f' and {deaths:,} ({per_dead:.1f}%) have died.'
-        # TODO put data source info somewhere else - auto-expansion of URLs can make these messages consume a lot of space
-        # s += f' Check out https://offloop.net/covid19/ for graphs!'
-
-        await event.respond(s)
+        await event.respond(
+            f'In {m_loc} there have been a total of {cases:,} cases as of {last_update} UTC.'
+            f' Of these {sick:,} ({per_sick:.1f}%) are still sick or may have recovered without being recorded,'
+            f' {recoveries:,} ({per_rec:.1f}%) have definitely recovered'
+            f' and {deaths:,} ({per_dead:.1f}%) have died.'
+        )
 
     @command.new('source', help='Get my source code and the data I use.')
     async def source_handler(self, event: MessageEvent) -> None:
-        s = 'I am MIT licensed on Github at https://github.com/pwr22/covbot.'
-        s += f' I fetch new data every 15 minutes from {CASE_DATA_URL}.'
-        await event.respond(s)
+        await event.respond((
+            'I am MIT licensed on Github at https://github.com/pwr22/covbot.'
+            f' I fetch new data every 15 minutes from {CASE_DATA_URL}.'
+        ))
 
     # TODO make less clever and one line per command
     @command.new('help', help='Get usage help using me.')
