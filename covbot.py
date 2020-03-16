@@ -97,36 +97,43 @@ class CovBot(Plugin):
         if self.next_update_at == None or now >= self.next_update_at:
             self.log.info('updating data')
             self.groups, self.cases = await asyncio.gather(self._get_country_groups(), self._get_case_data())
-            
+
             # one we've got the data we can update the index
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, lambda: self._update_index())
-            
+
             self.next_update_at = now + datetime.timedelta(minutes=15)
         else:
             self.log.info('too early to update - using cached data')
 
-    def _get_data_for(self, location: str) -> (str, dict):
-        lc_loc = location.lower()
-
-        # try exact country match
+    def _exact_country_match(self, query: str) -> list:
         for country in self.cases:
-            if country.lower() == lc_loc:
+            if country.lower() == query.lower():
                 return ((country, self.cases[country]['totals']),)
 
-        # try exact area match
-        areas = []
-        for country, d in self.cases.items():
-            for area, d in d['areas'].items():
-                if area.lower() == lc_loc:
-                    areas.append((f'{area}, {country}', d))
+        return None
 
+    def _exact_region_match(self, query: str) -> list:
+        regions = []
+        for country, data in self.cases.items():
+            for area, data in data['areas'].items():
+                if area.lower() == query.lower():
+                    regions.append((f'{area}, {country}', data))
+
+        return regions
+
+    def _get_data_for(self, query: str) -> list:
+        m = self._exact_country_match(query)
+        if m != None:
+            return m
+
+        areas = self._exact_region_match(query)
         if len(areas) > 0:
             return areas
 
         # try wildcard location match
         with self.index.searcher() as s:
-            qs = f'*{location}*'
+            qs = f'*{query}*'
             q = QueryParser("location", self.schema).parse(qs)
             matches = s.search(q, limit=None)
 
@@ -158,7 +165,7 @@ class CovBot(Plugin):
             self.log.error('failed to update data: %s', e)
             await event.respond('Something went wrong fetching the latest data so stats may be outdated.')
 
-        matches = self._get_data_for(location)
+        matches = await asyncio.get_running_loop().run_in_executor(None, self._get_data_for, location)
 
         if len(matches) == 0:
             await event.respond(f'I have searched my data but cannot find a match for {location}. It might be under a different name or there may be no cases! If I am wrong let @pwr22:shortestpath.dev know.')
