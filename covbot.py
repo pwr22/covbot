@@ -17,6 +17,10 @@ from whoosh.qparser import QueryParser
 CASE_DATA_URL = 'http://offloop.net/covid19h/unconfirmed.csv'
 GROUPS_URL = 'https://offloop.net/covid19h/groups.txt'
 
+RENAMES = {
+    'US': 'United States of America'
+}
+
 
 class CovBot(Plugin):
     groups = {}
@@ -56,14 +60,15 @@ class CovBot(Plugin):
             country = row['Country']
 
             if not country in countries:
-                countries[country] = {'totals': {
-                    'cases': 0, 'recoveries': 0, 'deaths': 0}, 'areas': {}}
+                countries[country] = {'areas': {}}
 
-            cases, deaths, recoveries = (0 if n == '' else int(n) for n in (
-                row[k] for k in ('Confirmed', 'Deaths', 'Recovered')))
+            cases = 0 if row['Confirmed'] == '' else int(row['Confirmed'])
+            deaths = 0 if row['Deaths'] == '' else int(row['Deaths'])
+            recoveries = 0 if row['Recovered'] == '' else int(row['Recovered'])
 
-            ts = int(int(now if row['LastUpdated']
-                         == '' else row['LastUpdated']) / 1000)
+            ts_msec = now if row['LastUpdated'] == '' else int(
+                row['LastUpdated'])
+            ts = ts_msec // 1000
             last_update = datetime.datetime.utcfromtimestamp(ts)
 
             area = row['Province']
@@ -114,6 +119,11 @@ class CovBot(Plugin):
         for country in self.cases:
             if country.lower() == query.lower():
                 self.log.debug('Got an exact country match on %s', query)
+                
+                if not 'totals' in self.cases[country]:
+                    self.log.debug('No totals found for %s', country)
+                    return None
+                
                 return ((country, self.cases[country]['totals']),)
 
         return None
