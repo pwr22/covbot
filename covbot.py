@@ -72,7 +72,10 @@ class CovBot(Plugin):
             last_update = datetime.datetime.utcfromtimestamp(ts)
 
             area = row['Province']
-            if area == '':
+            if area == '' or area.lower() == country.lower():
+                if 'totals' in countries[country]:
+                    self.log.warning('Duplicate totals for %s', country)
+
                 d = {'cases': cases, 'deaths': deaths,
                      'recoveries': recoveries, 'last_update': last_update}
                 countries[country]['totals'] = d
