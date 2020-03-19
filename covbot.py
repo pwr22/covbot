@@ -14,6 +14,7 @@ import pycountry
 from whoosh.fields import Schema, TEXT
 from whoosh.index import create_in, FileIndex
 from whoosh.qparser import QueryParser
+from mautrix.types import TextMessageEventContent, MessageType
 
 CASE_DATA_URL = 'http://offloop.net/covid19h/unconfirmed.csv'
 GROUPS_URL = 'https://offloop.net/covid19h/groups.txt'
@@ -127,10 +128,11 @@ class CovBot(Plugin):
         self.log.info('Trying an exact country code match on %s', query)
         cc = query.upper()
         # Handle UK alias.
-        if cc == 'UK': 
+        if cc == 'UK':
             cc = 'GB'
 
-        c = pycountry.countries.get(alpha_2=cc) or pycountry.countries.get(alpha_3=cc)
+        c = pycountry.countries.get(
+            alpha_2=cc) or pycountry.countries.get(alpha_3=cc)
         if c != None:
             self.log.info('%s is %s', cc, c.name)
 
@@ -221,6 +223,11 @@ class CovBot(Plugin):
 
         return []
 
+    @staticmethod
+    async def _send_message(e: MessageEvent, m: str) -> None:
+        c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
+        await e.respond(c)
+
     @command.new('cases', help='Get current information on cases.')
     @command.argument("location", pass_raw=True, required=False)
     async def cases_handler(self, event: MessageEvent, location: str) -> None:
@@ -233,13 +240,14 @@ class CovBot(Plugin):
             await self._update_data()
         except Exception as e:
             self.log.warn('Failed to update data: %s.', e)
-            await event.respond('Something went wrong fetching the latest data so stats may be outdated.')
+            await self._send_message(event, 'Something went wrong fetching the latest data so stats may be outdated.')
 
         matches = await asyncio.get_running_loop().run_in_executor(None, self._get_data_for, location)
         # matches = self._get_data_for(location)
 
         if len(matches) == 0:
-            await event.respond(
+            await self._send_message(
+                event,
                 f'I have searched my data but cannot find a match for {location}.'
                 ' It might be under a different name or there may be no cases!'
                 ' If I am wrong let @pwr22:shortestpath.dev know.'
@@ -247,7 +255,7 @@ class CovBot(Plugin):
             return
         elif len(matches) > 1:
             ms = " - ".join(m[0] for m in matches)
-            await event.respond(f"Which of these did you mean? {ms}")
+            await self._send_message(event, f"Which of these did you mean? {ms}")
             return
 
         m_loc, data = matches[0]
@@ -259,7 +267,8 @@ class CovBot(Plugin):
         per_dead = 0 if cases == 0 else int(deaths) / int(cases) * 100
         per_sick = 100 - per_rec - per_dead
 
-        await event.respond(
+        await self._send_message(
+            event,
             f'In {m_loc} there have been a total of {cases:,} cases as of {last_update} UTC.'
             f' Of these {sick:,} ({per_sick:.1f}%) are still sick or may have recovered without being recorded,'
             f' {recoveries:,} ({per_rec:.1f}%) have definitely recovered'
@@ -269,7 +278,8 @@ class CovBot(Plugin):
     @command.new('source', help='Get my source code and the data I use.')
     async def source_handler(self, event: MessageEvent) -> None:
         self.log.info('Responding to source request.')
-        await event.respond(
+        await self._send_message(
+            event,
             'I am MIT licensed on Github at https://github.com/pwr22/covbot.'
             f' I fetch new data every 15 minutes from {CASE_DATA_URL}.'
         )
@@ -280,4 +290,4 @@ class CovBot(Plugin):
         self.log.info('Responding to help request.')
         for h in self.cases_handler, self.source_handler, self.help_handler:
             s = h.__mb_full_help__ + ' - ' + h.__mb_help__
-            await event.respond(s)
+            await self._send_message(event, s)
