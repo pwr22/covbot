@@ -356,8 +356,9 @@ class CovBot(Plugin):
                      f"<td><em>{per_total_dead:.1f}</em></td>"
                      "</tfoot></tr>")
 
-        await event.respond(f"<table>{tablehead}{tabledata}{tablefoot}"
-                            "</table>", allow_html=True)
+        if results:
+            await event.respond(f"<table>{tablehead}{tabledata}{tablefoot}"
+                                "</table>", allow_html=True)
 
 
     @command.new('source', help='Get my source code and the data I use.')
