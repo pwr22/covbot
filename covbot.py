@@ -353,7 +353,7 @@ class CovBot(Plugin):
                      f"<td><em>{total_recoveries}</td>"
                      f"<td><em>{per_total_rec:.1f}</em></td>"
                      f"<td><em>{total_deaths}</td>"
-                     f"<td>{per_total_dead:.1f}</em></td>"
+                     f"<td><em>{per_total_dead:.1f}</em></td>"
                      "</tfoot></tr>")
 
         await event.respond(f"<table>{tablehead}{tabledata}{tablefoot}"
