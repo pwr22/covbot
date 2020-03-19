@@ -294,11 +294,12 @@ class CovBot(Plugin):
                     await event.respond(f"I cannot find a match for {loc}")
                 elif len(matches) > 1:
                     ms = " - ".join(m[0] for m in matches)
-                    await event.respond(f"Multiple results for {loc}: {ms}")
+                    await event.respond(f"Multiple results for {loc}: {ms}. "
+                                        "Please provide one.")
+                    return
                 else:
                     # {"Elbonia": {}}
                     results[matches[0][0]] = matches[0][1]
-                    await event.respond(f"Match found for {loc}")
         else:
             matches = await asyncio.get_running_loop().run_in_executor(
                 None, self._get_data_for, location)
@@ -306,19 +307,33 @@ class CovBot(Plugin):
                 await event.respond(f"I cannot find a match for {location}")
             elif len(matches) > 1:
                 ms = " - ".join(m[0] for m in matches)
-                await event.respond(f"Multiple results for {location}: {ms}")
+                await event.respond(f"Multiple results for {location}: {ms}. "
+                                    "Please provide one.")
+                return
             else:
                 results[matches[0][0]] = matches[0][1]
-                await event.respond(f"Match found for {location}")
 
         tablehead = ("<thead><tr><th>Location</th><th>Cases</th>"
-                     "<th>Recoveries</th><th>Deaths</th></tr></thead>")
+                     "<th>Still Sick</th><th>%</th>"
+                     "<th>Recoveries</th><th>%</th>"
+                     "<th>Deaths</th><th>%</th></tr></thead>")
         tabledata = ""
         for location, data in results.items():
+
+            sick = data['cases'] - data['recoveries'] - data['deaths']
+            per_rec = 0 if data['cases'] == 0 else \
+                int(data['recoveries']) / int(data['cases']) * 100
+            per_dead = 0 if data['cases'] == 0 else \
+                int(data['deaths']) / int(data['cases']) * 100
+            per_sick = 100 - per_rec - per_dead
+
             tabledata += (f"<tr><td>{location}</td> <td>{data['cases']}</td> "
-                          f"<td>{data['recoveries']}</td> "
-                          f"<td>{data['deaths']}</td>")
-        await event.respond(f"<table>{tablehead}{tabledata}</table",
+                          f"<td>{sick}</td><td>{per_sick:.1f}</td>"
+                          f"<td>{data['recoveries']}</td>"
+                          f"<td>{per_rec:.1f}</td>"
+                          f"<td>{data['deaths']}</td>"
+                          f"<td>{per_dead:.1f}</td></tr>")
+        await event.respond(f"<table>{tablehead}{tabledata}</table>",
                             allow_html=True)
 
 
