@@ -318,6 +318,7 @@ class CovBot(Plugin):
                      "<th>Recoveries</th><th>%</th>"
                      "<th>Deaths</th><th>%</th></tr></thead>")
         tabledata = ""
+        total_cases = total_sick = total_recoveries = total_deaths = 0
         for location, data in results.items():
 
             sick = data['cases'] - data['recoveries'] - data['deaths']
@@ -327,14 +328,36 @@ class CovBot(Plugin):
                 int(data['deaths']) / int(data['cases']) * 100
             per_sick = 100 - per_rec - per_dead
 
+            total_cases += data['cases']
+            total_sick += sick
+            total_recoveries += data['recoveries']
+            total_deaths += data['deaths']
+
             tabledata += (f"<tr><td>{location}</td> <td>{data['cases']}</td> "
                           f"<td>{sick}</td><td>{per_sick:.1f}</td>"
                           f"<td>{data['recoveries']}</td>"
                           f"<td>{per_rec:.1f}</td>"
                           f"<td>{data['deaths']}</td>"
                           f"<td>{per_dead:.1f}</td></tr>")
-        await event.respond(f"<table>{tablehead}{tabledata}</table>",
-                            allow_html=True)
+
+        per_total_rec = 0 if total_cases == 0 else \
+            int(total_recoveries) / int(total_cases) * 100
+        per_total_dead = 0 if total_cases == 0 else \
+            int(total_deaths) / int(total_cases) * 100
+        per_total_sick = 100 - per_total_rec - per_total_dead
+
+        tablefoot = (f"<tr></tr><tr><tfoot><td><em>Total</em></td>"
+                     f"<td><em>{total_cases}</em></td>"
+                     f"<td><em>{total_sick}</em></td>"
+                     f"<td><em>{per_total_sick:.1f}</em></td>"
+                     f"<td><em>{total_recoveries}</td>"
+                     f"<td><em>{per_total_rec:.1f}</em></td>"
+                     f"<td><em>{total_deaths}</td>"
+                     f"<td>{per_total_dead:.1f}</em></td>"
+                     "</tfoot></tr>")
+
+        await event.respond(f"<table>{tablehead}{tabledata}{tablefoot}"
+                            "</table>", allow_html=True)
 
 
     @command.new('source', help='Get my source code and the data I use.')
