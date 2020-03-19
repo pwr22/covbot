@@ -10,6 +10,7 @@ import datetime
 import asyncio
 import whoosh
 import time
+import pycountry
 from whoosh.fields import Schema, TEXT
 from whoosh.index import create_in, FileIndex
 from whoosh.qparser import QueryParser
@@ -17,8 +18,11 @@ from whoosh.qparser import QueryParser
 CASE_DATA_URL = 'http://offloop.net/covid19h/unconfirmed.csv'
 GROUPS_URL = 'https://offloop.net/covid19h/groups.txt'
 
-RENAMES = {
-    'US': 'United States of America'
+COUNTRY_RENAMES = {
+    'US': 'United States',
+    'DRC': 'Democratic Republic of the Congo',
+    'UAE': 'United Arab Emirates',
+    "U.S. Virgin Islands": "United States Virgin Islands"
 }
 
 
@@ -58,6 +62,8 @@ class CovBot(Plugin):
         cr = csv.DictReader(l, delimiter=';')
         for row in cr:
             country = row['Country']
+            if country in COUNTRY_RENAMES:
+                country = COUNTRY_RENAMES[country]
 
             if not country in countries:
                 countries[country] = {'areas': {}}
@@ -117,16 +123,41 @@ class CovBot(Plugin):
         else:
             self.log.info('Too early to update - using cached data.')
 
+    def _exact_country_code_match(self, query: str) -> list:
+        self.log.info('Trying an exact country code match on %s', query)
+        cc = query.upper()
+        # Handle UK alias.
+        if cc == 'UK': 
+            cc = 'GB'
+
+        c = pycountry.countries.get(alpha_2=cc) or pycountry.countries.get(alpha_3=cc)
+        if c != None:
+            self.log.info('%s is %s', cc, c.name)
+
+            if c.name not in self.cases:
+                self.log.warn('No data for %s', c.name)
+                return None
+
+            d = self.cases[c.name]
+
+            if not 'totals' in d:
+                self.log.debug('No totals found for %s', c.name)
+                return None
+
+            return ((c.name, d['totals']),)
+
+        return None
+
     def _exact_country_match(self, query: str) -> list:
         self.log.info('Trying an exact country match on %s', query)
         for country in self.cases:
             if country.lower() == query.lower():
                 self.log.debug('Got an exact country match on %s', query)
-                
-                if not 'totals' in self.cases[country]:
+
+                if 'totals' not in self.cases[country]:
                     self.log.debug('No totals found for %s', country)
                     return None
-                
+
                 return ((country, self.cases[country]['totals']),)
 
         return None
@@ -140,7 +171,8 @@ class CovBot(Plugin):
                     regions.append((f'{area}, {country}', data))
 
         if len(regions) > 0:
-            self.log.debug('Got exact region matches on %s: %s', query, regions)
+            self.log.debug(
+                'Got exact region matches on %s: %s', query, regions)
 
         return regions
 
@@ -163,12 +195,17 @@ class CovBot(Plugin):
                 locs.append((l, d))
 
             if len(locs) > 0:
-                self.log.debug('Found wildcard location matches on %s: %s', query, locs)
+                self.log.debug(
+                    'Found wildcard location matches on %s: %s', query, locs)
 
             return locs
 
     def _get_data_for(self, query: str) -> list:
         self.log.info('Looking up data for %s', query)
+
+        m = self._exact_country_code_match(query)
+        if m != None:
+            return m
 
         m = self._exact_country_match(query)
         if m != None:
