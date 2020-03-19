@@ -26,6 +26,13 @@ COUNTRY_RENAMES = {
     "U.S. Virgin Islands": "United States Virgin Islands"
 }
 
+# command: ( usage, description )
+HELP = {
+    'cases': ('!cases [location]', 'Get current information on cases. Location is optional and can be a country, country code, state, county, region or city.'),
+    'source': ('!source', 'Where are my source code and data sources?'),
+    'help': ('!help', 'Get help using me!'),
+}
+
 
 class CovBot(Plugin):
     groups = {}
@@ -228,7 +235,7 @@ class CovBot(Plugin):
         c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
         await e.respond(c)
 
-    @command.new('cases', help='Get current information on cases.')
+    @command.new('cases', help=HELP['cases'][1])
     @command.argument("location", pass_raw=True, required=False)
     async def cases_handler(self, event: MessageEvent, location: str) -> None:
         if location == "":
@@ -275,7 +282,7 @@ class CovBot(Plugin):
             f' and {deaths:,} ({per_dead:.1f}%) have died.'
         )
 
-    @command.new('source', help='Get my source code and the data I use.')
+    @command.new('source', help=HELP['source'][1])
     async def source_handler(self, event: MessageEvent) -> None:
         self.log.info('Responding to source request.')
         await self._send_message(
@@ -284,10 +291,10 @@ class CovBot(Plugin):
             f' I fetch new data every 15 minutes from {CASE_DATA_URL}.'
         )
 
-    # TODO make less clever and one line per command
-    @command.new('help', help='Get usage help using me.')
+    @command.new('help', help=HELP['help'][1])
     async def help_handler(self, event: MessageEvent) -> None:
         self.log.info('Responding to help request.')
-        for h in self.cases_handler, self.source_handler, self.help_handler:
-            s = h.__mb_full_help__ + ' - ' + h.__mb_help__
-            await self._send_message(event, s)
+
+        await self._send_message(event, 'You can send any of these commands:')
+        for (usage, desc) in HELP.values():
+            await self._send_message(event, f'{usage} - {desc}')
