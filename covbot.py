@@ -266,6 +266,62 @@ class CovBot(Plugin):
             f' and {deaths:,} ({per_dead:.1f}%) have died.'
         )
 
+    @command.new('table', help="Show case information in a table. "
+                 "Multiple locations can be separated using ;"
+                 "(semicolon) as a delimiter.")
+    @command.argument("location", pass_raw=True, required=False)
+    async def table_handler(self, event: MessageEvent, location: str) -> None:
+        self.log.info("Handling table request")
+        if location == "":
+            location = "World"
+
+        try:
+            await self._update_data()
+        except Exception as e:
+            self.log.warn('Failed to update data: %s.', e)
+            await event.respond("Something went wrong fetching "
+                                "the latest data so stats may be outdated.")
+
+        results = {}
+
+        if ";" in location:
+            locs = location.split(";")
+            for loc in locs:
+                self.log.info(f"Looking up {loc}")
+                matches = await asyncio.get_running_loop().run_in_executor(
+                    None, self._get_data_for, loc)
+                if len(matches) == 0:
+                    await event.respond(f"I cannot find a match for {loc}")
+                elif len(matches) > 1:
+                    ms = " - ".join(m[0] for m in matches)
+                    await event.respond(f"Multiple results for {loc}: {ms}")
+                else:
+                    # {"Elbonia": {}}
+                    results[matches[0][0]] = matches[0][1]
+                    await event.respond(f"Match found for {loc}")
+        else:
+            matches = await asyncio.get_running_loop().run_in_executor(
+                None, self._get_data_for, location)
+            if len(matches) == 0:
+                await event.respond(f"I cannot find a match for {location}")
+            elif len(matches) > 1:
+                ms = " - ".join(m[0] for m in matches)
+                await event.respond(f"Multiple results for {location}: {ms}")
+            else:
+                results[matches[0][0]] = matches[0][1]
+                await event.respond(f"Match found for {location}")
+
+        tablehead = ("<thead><tr><th>Location</th><th>Cases</th>"
+                     "<th>Recoveries</th><th>Deaths</th></tr></thead>")
+        tabledata = ""
+        for location, data in results.items():
+            tabledata += (f"<tr><td>{location}</td> <td>{data['cases']}</td> "
+                          f"<td>{data['recoveries']}</td> "
+                          f"<td>{data['deaths']}</td>")
+        await event.respond(f"<table>{tablehead}{tabledata}</table",
+                            allow_html=True)
+
+
     @command.new('source', help='Get my source code and the data I use.')
     async def source_handler(self, event: MessageEvent) -> None:
         self.log.info('Responding to source request.')
@@ -278,6 +334,7 @@ class CovBot(Plugin):
     @command.new('help', help='Get usage help using me.')
     async def help_handler(self, event: MessageEvent) -> None:
         self.log.info('Responding to help request.')
-        for h in self.cases_handler, self.source_handler, self.help_handler:
+        for h in self.cases_handler, self.source_handler, self.help_handler, \
+                self.table_handler:
             s = h.__mb_full_help__ + ' - ' + h.__mb_help__
             await event.respond(s)
