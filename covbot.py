@@ -15,6 +15,8 @@ from whoosh.fields import Schema, TEXT
 from whoosh.index import create_in, FileIndex
 from whoosh.qparser import QueryParser
 from tabulate import tabulate
+from mautrix.types import TextMessageEventContent, MessageType
+from mautrix.client import MembershipEventDispatcher, InternalEventType
 
 CASE_DATA_URL = 'http://offloop.net/covid19h/unconfirmed.csv'
 GROUPS_URL = 'https://offloop.net/covid19h/groups.txt'
@@ -26,6 +28,13 @@ COUNTRY_RENAMES = {
     "U.S. Virgin Islands": "United States Virgin Islands"
 }
 
+# command: ( usage, description )
+HELP = {
+    'cases': ('!cases [location]', 'Get current information on cases. Location is optional and can be a country, country code, state, county, region or city.'),
+    'source': ('!source', 'Where are my source code and data sources?'),
+    'help': ('!help', 'Get help using me!'),
+}
+
 
 class CovBot(Plugin):
     groups = {}
@@ -34,6 +43,10 @@ class CovBot(Plugin):
     schema: Schema = Schema(country=TEXT(stored=True), area=TEXT(
         stored=True), location=TEXT(stored=True))
     index: FileIndex = None
+
+    async def start(self):
+        # So we can get room join events.
+        self.client.add_dispatcher(MembershipEventDispatcher)
 
     async def _get_country_groups(self):
         groups = {}
@@ -128,10 +141,11 @@ class CovBot(Plugin):
         self.log.info('Trying an exact country code match on %s', query)
         cc = query.upper()
         # Handle UK alias.
-        if cc == 'UK': 
+        if cc == 'UK':
             cc = 'GB'
 
-        c = pycountry.countries.get(alpha_2=cc) or pycountry.countries.get(alpha_3=cc)
+        c = pycountry.countries.get(
+            alpha_2=cc) or pycountry.countries.get(alpha_3=cc)
         if c != None:
             self.log.info('%s is %s', cc, c.name)
 
@@ -260,7 +274,12 @@ class CovBot(Plugin):
 
         return results
 
-    @command.new('cases', help='Get current information on cases.')
+    @staticmethod
+    async def _respond(e: MessageEvent, m: str) -> None:
+        c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
+        await e.respond(c)
+
+    @command.new('cases', help=HELP['cases'][1])
     @command.argument("location", pass_raw=True, required=False)
     async def cases_handler(self, event: MessageEvent, location: str) -> None:
         if location == "":
@@ -272,13 +291,14 @@ class CovBot(Plugin):
             await self._update_data()
         except Exception as e:
             self.log.warn('Failed to update data: %s.', e)
-            await event.respond('Something went wrong fetching the latest data so stats may be outdated.')
+            await self._respond(event, 'Something went wrong fetching the latest data so stats may be outdated.')
 
         matches = await asyncio.get_running_loop().run_in_executor(None, self._get_data_for, location)
         # matches = self._get_data_for(location)
 
         if len(matches) == 0:
-            await event.respond(
+            await self._respond(
+                event,
                 f'I have searched my data but cannot find a match for {location}.'
                 ' It might be under a different name or there may be no cases!'
                 ' If I am wrong let @pwr22:shortestpath.dev know.'
@@ -286,7 +306,7 @@ class CovBot(Plugin):
             return
         elif len(matches) > 1:
             ms = " - ".join(m[0] for m in matches)
-            await event.respond(f"Which of these did you mean? {ms}")
+            await self._respond(event, f"Which of these did you mean? {ms}")
             return
 
         m_loc, data = matches[0]
@@ -298,7 +318,8 @@ class CovBot(Plugin):
         per_dead = 0 if cases == 0 else int(deaths) / int(cases) * 100
         per_sick = 100 - per_rec - per_dead
 
-        await event.respond(
+        await self._respond(
+            event,
             f'In {m_loc} there have been a total of {cases:,} cases as of {last_update} UTC.'
             f' Of these {sick:,} ({per_sick:.1f}%) are still sick or may have recovered without being recorded,'
             f' {recoveries:,} ({per_rec:.1f}%) have definitely recovered'
@@ -435,19 +456,50 @@ class CovBot(Plugin):
         if results:
             await event.respond(f"<pre>{table}</pre>", allow_html=True)
 
-    @command.new('source', help='Get my source code and the data I use.')
+    @command.new('source', help=HELP['source'][1])
     async def source_handler(self, event: MessageEvent) -> None:
         self.log.info('Responding to source request.')
-        await event.respond(
+        await self._respond(
+            event,
             'I am MIT licensed on Github at https://github.com/pwr22/covbot.'
             f' I fetch new data every 15 minutes from {CASE_DATA_URL}.'
         )
 
-    # TODO make less clever and one line per command
-    @command.new('help', help='Get usage help using me.')
+    async def _send_help(self, event: MessageEvent) -> None:
+        await self._respond(event, 'You can send me any of these commands:')
+        for (usage, desc) in HELP.values():
+            await self._respond(event, f'{usage} - {desc}')
+
+    @command.new('help', help=HELP['help'][1])
     async def help_handler(self, event: MessageEvent) -> None:
         self.log.info('Responding to help request.')
-        for h in self.cases_handler, self.source_handler, self.help_handler, \
-                self.table_handler:
-            s = h.__mb_full_help__ + ' - ' + h.__mb_help__
-            await event.respond(s)
+
+        await self._send_help(event)
+
+    async def _message(self, room_id, m: str) -> None:
+        c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
+        await self.client.send_message(room_id=room_id, content=c)
+
+    _rooms_joined = {}
+
+    @event.on(InternalEventType.JOIN)
+    async def join_handler(self, event: InternalEventType.JOIN) -> None:
+        me = await self.client.whoami()
+        if event.sender != me:
+            self.log.debug('Skipping join event from %s because I am %s', event.sender, me)
+            return
+
+        if event.room_id in self._rooms_joined:
+            self.log.warning('Already in room %s.', event.room_id)
+            self.log.warning('Event: %s.', event)
+            return
+
+        # work around duplicate joins
+        self._rooms_joined[event.room_id] = True
+        self.log.info(
+            'Sending unsolicited help on join to room %s', event.room_id)
+
+        await self._message(event.room_id, 'Hi, I am a bot that tracks SARS-COV-2 infection statistics.')
+        await self._message(event.room_id, 'You can send me any of these commands:')
+        for (usage, desc) in HELP.values():
+            await self._message(event.room_id, f'{usage} - {desc}')
