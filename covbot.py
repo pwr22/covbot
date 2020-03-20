@@ -14,6 +14,7 @@ import pycountry
 from whoosh.fields import Schema, TEXT
 from whoosh.index import create_in, FileIndex
 from whoosh.qparser import QueryParser
+from tabulate import tabulate
 
 CASE_DATA_URL = 'http://offloop.net/covid19h/unconfirmed.csv'
 GROUPS_URL = 'https://offloop.net/covid19h/groups.txt'
@@ -221,6 +222,44 @@ class CovBot(Plugin):
 
         return []
 
+    async def _get_multiple_locations(self, location: str) -> dict:
+        """Split locations on ';' and look up"""
+
+        results = {}
+
+        if ";" in location:
+            locs = location.split(";")
+            for loc in locs:
+                self.log.info(f"Looking up {loc}")
+                matches = await asyncio.get_running_loop().run_in_executor(
+                    None, self._get_data_for, loc)
+                if len(matches) == 0:
+                    await event.respond(f"I cannot find a match for {loc}")
+                    return {}
+                elif len(matches) > 1:
+                    ms = " - ".join(m[0] for m in matches)
+                    await event.respond(f"Multiple results for {loc}: {ms}. "
+                                        "Please provide one.")
+                    return {}
+                else:
+                    # {"Elbonia": {}}
+                    results[matches[0][0]] = matches[0][1]
+        else:
+            matches = await asyncio.get_running_loop().run_in_executor(
+                None, self._get_data_for, location)
+            if len(matches) == 0:
+                await event.respond(f"I cannot find a match for {location}")
+                return {}
+            elif len(matches) > 1:
+                ms = " - ".join(m[0] for m in matches)
+                await event.respond(f"Multiple results for {location}: {ms}. "
+                                    "Please provide one.")
+                return {}
+            else:
+                results[matches[0][0]] = matches[0][1]
+
+        return results
+
     @command.new('cases', help='Get current information on cases.')
     @command.argument("location", pass_raw=True, required=False)
     async def cases_handler(self, event: MessageEvent, location: str) -> None:
@@ -266,12 +305,13 @@ class CovBot(Plugin):
             f' and {deaths:,} ({per_dead:.1f}%) have died.'
         )
 
-    @command.new('table', help="Show case information in a table. "
+    @command.new('tablehtml', help="Show case information in an HTML table. "
                  "Multiple locations can be separated using ;"
-                 "(semicolon) as a delimiter.")
+                 "(semicolon) as a delimiter. Looks bad for mobile clients!")
     @command.argument("location", pass_raw=True, required=False)
-    async def table_handler(self, event: MessageEvent, location: str) -> None:
-        self.log.info("Handling table request")
+    async def tablehtml_handler(self, event: MessageEvent,
+                                location: str) -> None:
+        self.log.info("Handling HTML table request")
         if location == "":
             location = "World"
 
@@ -282,36 +322,10 @@ class CovBot(Plugin):
             await event.respond("Something went wrong fetching "
                                 "the latest data so stats may be outdated.")
 
-        results = {}
+        results = await self._get_multiple_locations(location)
 
-        if ";" in location:
-            locs = location.split(";")
-            for loc in locs:
-                self.log.info(f"Looking up {loc}")
-                matches = await asyncio.get_running_loop().run_in_executor(
-                    None, self._get_data_for, loc)
-                if len(matches) == 0:
-                    await event.respond(f"I cannot find a match for {loc}")
-                elif len(matches) > 1:
-                    ms = " - ".join(m[0] for m in matches)
-                    await event.respond(f"Multiple results for {loc}: {ms}. "
-                                        "Please provide one.")
-                    return
-                else:
-                    # {"Elbonia": {}}
-                    results[matches[0][0]] = matches[0][1]
-        else:
-            matches = await asyncio.get_running_loop().run_in_executor(
-                None, self._get_data_for, location)
-            if len(matches) == 0:
-                await event.respond(f"I cannot find a match for {location}")
-            elif len(matches) > 1:
-                ms = " - ".join(m[0] for m in matches)
-                await event.respond(f"Multiple results for {location}: {ms}. "
-                                    "Please provide one.")
-                return
-            else:
-                results[matches[0][0]] = matches[0][1]
+        if not results:
+            return
 
         tablehead = ("<thead><tr><th>Location</th><th>Cases</th>"
                      "<th>Still Sick</th><th>%</th>"
@@ -360,6 +374,66 @@ class CovBot(Plugin):
             await event.respond(f"<table>{tablehead}{tabledata}{tablefoot}"
                                 "</table>", allow_html=True)
 
+    @command.new('table', help="Show case information in a table. "
+                 "Multiple locations can be separated using ;"
+                 "(semicolon) as a delimiter.")
+    @command.argument("location", pass_raw=True, required=False)
+    async def table_handler(self, event: MessageEvent, location: str) -> None:
+        self.log.info("Handling table request")
+        if location == "":
+            location = "World"
+
+        try:
+            await self._update_data()
+        except Exception as e:
+            self.log.warn('Failed to update data: %s.', e)
+            await event.respond("Something went wrong fetching "
+                                "the latest data so stats may be outdated.")
+
+        results = await self._get_multiple_locations(location)
+
+        if not results:
+            return
+
+        tablehead = ["Location", "Cases", "Still Sick", "%",
+                     "Recoveries", "%", "Deaths", "%"]
+        tabledata = []
+        total_cases = total_sick = total_recoveries = total_deaths = 0
+        for location, data in results.items():
+
+            sick = data['cases'] - data['recoveries'] - data['deaths']
+            per_rec = 0 if data['cases'] == 0 else \
+                int(data['recoveries']) / int(data['cases']) * 100
+            per_dead = 0 if data['cases'] == 0 else \
+                int(data['deaths']) / int(data['cases']) * 100
+            per_sick = 100 - per_rec - per_dead
+
+            total_cases += data['cases']
+            total_sick += sick
+            total_recoveries += data['recoveries']
+            total_deaths += data['deaths']
+
+            tabledata.append([location, data['cases'], sick, f"{per_sick:.1f}",
+                              data['recoveries'], f"{per_rec:.1f}",
+                              data['deaths'], f"{per_dead:.1f}"])
+            self.log.info(f"{per_sick:.1f}")
+
+        per_total_rec = 0 if total_cases == 0 else \
+            int(total_recoveries) / int(total_cases) * 100
+        per_total_dead = 0 if total_cases == 0 else \
+            int(total_deaths) / int(total_cases) * 100
+        per_total_sick = 100 - per_total_rec - per_total_dead
+
+        tablefoot = ["Total", total_cases, total_sick, f"{per_total_sick:.1f}",
+                     total_recoveries, f"{per_total_rec:.1f}",
+                     total_deaths, f"{per_total_dead:.1f}"]
+        tabledata.append(tablefoot)
+
+        table = tabulate(tabledata, headers=tablehead,
+                         tablefmt="presto", floatfmt=".1f")
+
+        if results:
+            await event.respond(f"<pre>{table}</pre>", allow_html=True)
 
     @command.new('source', help='Get my source code and the data I use.')
     async def source_handler(self, event: MessageEvent) -> None:
