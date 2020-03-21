@@ -29,9 +29,9 @@ COUNTRY_RENAMES = {
 
 # command: ( usage, description )
 HELP = {
-    'cases': ('!cases [location]', 'Get current information on cases. Location is optional and can be a country, country code, state, county, region or city.'),
-    'source': ('!source', 'Where are my source code and data sources?'),
-    'help': ('!help', 'Get help using me!'),
+    'cases': ('!cases location', 'Get up to date info on cases, optionally in a specific location. You can give a country code, country name, state, country, region or city.'),
+    'source': ('!source', 'Find out about my data sources and developers.'),
+    'help': ('!help', 'Get a reminder what I can do for you.'),
 }
 
 
@@ -54,7 +54,8 @@ class CovBot(Plugin):
                 if len(members) == 1:
                     self.log.debug('Leaving room %s since it is empty.', r)
                     await self.client.leave_room(r)
-                    await asyncio.sleep(5)  # avoid throttling - no rush!
+
+                await asyncio.sleep(5)  # avoid throttling - no rush!
 
             await asyncio.sleep(300)
 
@@ -327,7 +328,9 @@ class CovBot(Plugin):
     async def help_handler(self, event: MessageEvent) -> None:
         self.log.info('Responding to help request.')
 
-        await self._send_help(event)
+        s = 'You can message me any of these commands:\n\n'
+        s += '\n'.join(f'{usage} - {desc}' for (usage, desc) in HELP.values())
+        await self._message(event.room_id, s)
 
     async def _message(self, room_id, m: str) -> None:
         c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
@@ -344,7 +347,8 @@ class CovBot(Plugin):
             return
 
         if event.room_id in self._rooms_joined:
-            self.log.warning('Duplicate join event for room %s.', event.room_id)
+            self.log.warning(
+                'Duplicate join event for room %s.', event.room_id)
             return
 
         # work around duplicate joins
@@ -352,7 +356,6 @@ class CovBot(Plugin):
         self.log.info(
             'Sending unsolicited help on join to room %s', event.room_id)
 
-        await self._message(event.room_id, 'Hi, I am a bot that tracks SARS-COV-2 infection statistics.')
-        await self._message(event.room_id, 'You can send me any of these commands:')
-        for (usage, desc) in HELP.values():
-            await self._message(event.room_id, f'{usage} - {desc}')
+        s = 'Hi, I am a bot that tracks SARS-COV-2 infection statistics for you. You can message me any of these commands:\n\n'
+        s += '\n'.join(f'{usage} - {desc}' for (usage, desc) in HELP.values())
+        await self._message(event.room_id, s)
