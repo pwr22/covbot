@@ -43,9 +43,31 @@ class CovBot(Plugin):
         stored=True), location=TEXT(stored=True))
     index: FileIndex = None
 
+    async def _prune_dead_rooms(self):
+        while True:
+            rooms = await self.client.get_joined_rooms()
+            self.log.debug('I am in %s rooms.', len(rooms))
+
+            for r in rooms:
+                members = await self.client.get_joined_members(r)
+
+                if len(members) == 1:
+                    self.log.debug('Leaving room %s since it is empty.', r)
+                    await self.client.leave_room(r)
+                    await asyncio.sleep(5)  # avoid throttling - no rush!
+
+            await asyncio.sleep(300)
+
     async def start(self):
+        await super().start()
         # So we can get room join events.
         self.client.add_dispatcher(MembershipEventDispatcher)
+        self._room_prune_task = asyncio.create_task(self._prune_dead_rooms())
+
+    async def stop(self):
+        await super().start()
+        self.client.remove_dispatcher(MembershipEventDispatcher)
+        self._room_prune_task.cancel()
 
     async def _get_country_groups(self):
         groups = {}
@@ -316,13 +338,13 @@ class CovBot(Plugin):
     @event.on(InternalEventType.JOIN)
     async def join_handler(self, event: InternalEventType.JOIN) -> None:
         me = await self.client.whoami()
+
+        # Ignore all joins but mine.
         if event.sender != me:
-            self.log.debug('Skipping join event from %s because I am %s', event.sender, me)
             return
 
         if event.room_id in self._rooms_joined:
-            self.log.warning('Already in room %s.', event.room_id)
-            self.log.warning('Event: %s.', event)
+            self.log.warning('Duplicate join event for room %s.', event.room_id)
             return
 
         # work around duplicate joins
