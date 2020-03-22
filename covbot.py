@@ -42,6 +42,8 @@ class CovBot(Plugin):
     schema: Schema = Schema(country=TEXT(stored=True), area=TEXT(
         stored=True), location=TEXT(stored=True))
     index: FileIndex = None
+    _rooms_joined = {}
+
 
     async def _prune_dead_rooms(self):
         while True:
@@ -283,14 +285,15 @@ class CovBot(Plugin):
         if len(matches) == 0:
             await self._respond(
                 event,
-                f'I have searched my data but cannot find a match for {location}.'
-                ' It might be under a different name or there may be no cases!'
-                ' If I am wrong let @pwr22:shortestpath.dev know.'
+                f'My data doesn\'t seem to include {location}.'
+                ' It might be under a different name, data on it might not be available or there could even be no cases.'
+                ' You may have more luck if you try a less specific location, like the country it\'s in.'
+                f' \n\nIf you think I should have data on it you can open an issue at https://github.com/pwr22/covbot/issues and Peter will take a look.'
             )
             return
         elif len(matches) > 1:
-            ms = " - ".join(m[0] for m in matches)
-            await self._respond(event, f"Which of these did you mean? {ms}")
+            ms = "\n".join(m[0] for m in matches)
+            await self._respond(event, f"Which of these did you mean?\n\n{ms}")
             return
 
         m_loc, data = matches[0]
@@ -315,14 +318,9 @@ class CovBot(Plugin):
         self.log.info('Responding to source request.')
         await self._respond(
             event,
-            'I am MIT licensed on Github at https://github.com/pwr22/covbot.'
+            'I was created by Peter Roberts and MIT licensed on Github at https://github.com/pwr22/covbot.'
             f' I fetch new data every 15 minutes from {CASE_DATA_URL}.'
         )
-
-    async def _send_help(self, event: MessageEvent) -> None:
-        await self._respond(event, 'You can send me any of these commands:')
-        for (usage, desc) in HELP.values():
-            await self._respond(event, f'{usage} - {desc}')
 
     @command.new('help', help=HELP['help'][1])
     async def help_handler(self, event: MessageEvent) -> None:
@@ -335,8 +333,6 @@ class CovBot(Plugin):
     async def _message(self, room_id, m: str) -> None:
         c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
         await self.client.send_message(room_id=room_id, content=c)
-
-    _rooms_joined = {}
 
     @event.on(InternalEventType.JOIN)
     async def join_handler(self, event: InternalEventType.JOIN) -> None:
