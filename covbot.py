@@ -22,6 +22,7 @@ CASE_DATA_URL = 'http://offloop.net/covid19h/unconfirmed.csv'
 GROUPS_URL = 'https://offloop.net/covid19h/groups.txt'
 UK_NHS_REGIONS_URL = 'https://www.arcgis.com/sharing/rest/content/items/ca796627a2294c51926865748c4a56e8/data'
 UK_REGIONS_URL = 'https://www.arcgis.com/sharing/rest/content/items/b684319181f94875a6879bbc833ca3a6/data'
+API_PAUSE = 5  # seconds
 
 COUNTRY_RENAMES = {
     'US': 'United States',
@@ -40,7 +41,7 @@ HELP = {
 
 class Config(BaseProxyConfig):
     def do_update(self, helper: ConfigUpdateHelper) -> None:
-        helper.copy("admin")
+        helper.copy("admins")
 
 
 class CovBot(Plugin):
@@ -54,8 +55,9 @@ class CovBot(Plugin):
 
     async def _prune_dead_rooms(self):
         while True:
+            users = set()
             rooms = await self.client.get_joined_rooms()
-            self.log.debug('I am in %s rooms.', len(rooms))
+            self.log.info('I am in %s rooms.', len(rooms))
 
             for r in rooms:
                 members = await self.client.get_joined_members(r)
@@ -63,10 +65,14 @@ class CovBot(Plugin):
                 if len(members) == 1:
                     self.log.debug('Leaving room %s since it is empty.', r)
                     await self.client.leave_room(r)
+                else:
+                    for m in members:
+                        users.add(m)
 
-                await asyncio.sleep(5)  # avoid throttling - no rush!
+                await asyncio.sleep(API_PAUSE)  # avoid throttling - no rush!
 
-            await asyncio.sleep(300)
+            self.log.info('I talk to %s unique users.', len(users))
+            await asyncio.sleep(60 * 60 * 24) # once per day
 
     @classmethod
     def get_config_class(cls) -> BaseProxyConfig:
@@ -350,6 +356,7 @@ class CovBot(Plugin):
         cases, last_update = data['cases'], data['last_update']
         s = f'In {m_loc} there have been a total of {cases:,} cases as of {last_update} UTC.'
 
+        # some data is more detailed
         if 'recoveries' in data and 'deaths' in data:
             recoveries, deaths = data['recoveries'], data['deaths']
             sick = cases - recoveries - deaths
@@ -375,7 +382,7 @@ class CovBot(Plugin):
         await self._respond(
             event,
             'I was created by Peter Roberts and MIT licensed on Github at https://github.com/pwr22/covbot.'
-            f' I fetch new data every 15 minutes from {CASE_DATA_URL}.'
+            f' I fetch new data every 15 minutes from {CASE_DATA_URL}, {UK_NHS_REGIONS_URL} and {UK_REGIONS_URL}.'
         )
 
     @command.new('help', help=HELP['help'][1])
@@ -408,7 +415,7 @@ class CovBot(Plugin):
 
         for r in rooms:
             await self._message(r, message)
-            await asyncio.sleep(1)  # no rush, avoid rate limiting
+            await asyncio.sleep(API_PAUSE)  # no rush, avoid rate limiting
 
     @event.on(InternalEventType.JOIN)
     async def join_handler(self, event: InternalEventType.JOIN) -> None:
