@@ -1,0 +1,4 @@
+# Users allowed to perform admin actions
+# CHANGE THIS
+admins:
+- '@user:example.com'

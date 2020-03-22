@@ -1,6 +1,7 @@
 from mautrix.types import EventType
 from maubot import Plugin, MessageEvent
 from maubot.handlers import event, command
+from mautrix.util.config import BaseProxyConfig, ConfigUpdateHelper
 
 import os
 import csv
@@ -35,6 +36,11 @@ HELP = {
 }
 
 
+class Config(BaseProxyConfig):
+    def do_update(self, helper: ConfigUpdateHelper) -> None:
+        helper.copy("admin")
+
+
 class CovBot(Plugin):
     groups = {}
     cases = {}
@@ -43,7 +49,6 @@ class CovBot(Plugin):
         stored=True), location=TEXT(stored=True))
     index: FileIndex = None
     _rooms_joined = {}
-
 
     async def _prune_dead_rooms(self):
         while True:
@@ -61,8 +66,13 @@ class CovBot(Plugin):
 
             await asyncio.sleep(300)
 
+    @classmethod
+    def get_config_class(cls) -> BaseProxyConfig:
+        return Config
+
     async def start(self):
         await super().start()
+        self.config.load_and_update()
         # So we can get room join events.
         self.client.add_dispatcher(MembershipEventDispatcher)
         self._room_prune_task = asyncio.create_task(self._prune_dead_rooms())
@@ -333,6 +343,26 @@ class CovBot(Plugin):
     async def _message(self, room_id, m: str) -> None:
         c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
         await self.client.send_message(room_id=room_id, content=c)
+
+    @command.new('announce', help='Send broadcast a message to all rooms.')
+    @command.argument("message", pass_raw=True, required=True)
+    async def accounce(self, event: MessageEvent, message: str) -> None:
+        if event.sender not in self.config['admins']:
+            self.log.warn(
+                'User %s tried to send an announcement but only admins are authorised to do so.'
+                ' They tried to send %s.',
+                event.sender, message
+            )
+            await self._respond(event, 'You do not have permission to !announce.')
+            return None
+
+        rooms = await self.client.get_joined_rooms()
+        self.log.info('Sending announcement %s to all %s rooms',
+                      message, len(rooms))
+
+        for r in rooms:
+            await self._message(r, message)
+            await asyncio.sleep(1)  # no rush, avoid rate limiting
 
     @event.on(InternalEventType.JOIN)
     async def join_handler(self, event: InternalEventType.JOIN) -> None:

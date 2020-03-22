@@ -1,5 +1,5 @@
 maubot: 0.1.0
-id: dev.shortestpath.covbot.test
+id: dev.shortestpath.covbot
 version: 0.0.11
 license: MIT
 modules:
@@ -11,3 +11,4 @@ dependencies:
 database: false
 extra_files:
 - LICENSE
+- base-config.yaml
