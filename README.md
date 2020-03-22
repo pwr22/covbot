@@ -11,7 +11,7 @@ Matrix bot tracking SARS-COV-2 statistics using data from https://offloop.net/co
 
 ## Usage
 
-Message `!cases` or `!cases <location>` and the bot replies. E.g. `!cases US`.
+Message CovBot and it'll say hello and let you know how to use it. If you want a reminder at any point then just message `!help`.
 
 ## Installation
 
