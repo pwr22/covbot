@@ -13,6 +13,10 @@ Matrix bot tracking SARS-COV-2 statistics using data from https://offloop.net/co
 
 Message CovBot and it'll say hello and let you know how to use it. If you want a reminder at any point then just message `!help`.
 
-## Installation
+## Contributing
 
-To run your own instance, download the latest release and upload to your maubot.
+Pull requests are welcome and if you don't have any ideas what to work on then check the [issues](https://github.com/pwr22/covbot/issues) for something to pick up.
+
+## Self-Hosting
+
+To run your own instance, download the latest release and upload to your [maubot](https://maubot.xyz).
