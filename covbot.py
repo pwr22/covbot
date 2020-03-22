@@ -20,6 +20,8 @@ from mautrix.client import MembershipEventDispatcher, InternalEventType
 
 CASE_DATA_URL = 'http://offloop.net/covid19h/unconfirmed.csv'
 GROUPS_URL = 'https://offloop.net/covid19h/groups.txt'
+UK_NHS_REGIONS_URL = 'https://www.arcgis.com/sharing/rest/content/items/ca796627a2294c51926865748c4a56e8/data'
+UK_REGIONS_URL = 'https://www.arcgis.com/sharing/rest/content/items/b684319181f94875a6879bbc833ca3a6/data'
 
 COUNTRY_RENAMES = {
     'US': 'United States',
@@ -96,12 +98,39 @@ class CovBot(Plugin):
 
         return groups
 
+    async def _get_uk_nhs_regions(self):
+        regions = {}
+
+        async with self.http.get(UK_NHS_REGIONS_URL) as r:
+            t = await r.text()
+            l = t.splitlines()
+
+        # GSS_CD, NHSRNm, TotalCases
+        cr = csv.DictReader(l)
+        for row in cr:
+            regions[row['NHSRNm']] = int(row['TotalCases'].replace(',', ''))
+
+        return regions
+
+    async def _get_uk_regions(self):
+        regions = {}
+
+        async with self.http.get(UK_REGIONS_URL) as r:
+            t = await r.text()
+            l = t.splitlines()
+
+        # GSS_CD, GSS_NM, TotalCases
+        cr = csv.DictReader(l)
+        for row in cr:
+            regions[row['GSS_NM']] = int(row['TotalCases'].replace(',', ''))
+
+        return regions
+
     async def _get_case_data(self):
         countries = {}
         now = time.time() * 1000  # millis to match the data
 
         self.log.debug("Fetching %s.", CASE_DATA_URL)
-        l = None
         async with self.http.get(CASE_DATA_URL) as r:
             t = await r.text()
             l = t.splitlines()
@@ -161,12 +190,23 @@ class CovBot(Plugin):
         idx_w.commit()
 
     async def _update_data(self):
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.utcfromtimestamp(int(time.time()))
 
         if self.next_update_at == None or now >= self.next_update_at:
             self.log.info('Updating data.')
-            self.groups, self.cases = await asyncio.gather(self._get_country_groups(), self._get_case_data())
+            data, uk_nhs_regions, uk_regions = await asyncio.gather(self._get_case_data(), self._get_uk_nhs_regions(), self._get_uk_regions())
+
+            for r, cases in uk_nhs_regions.items():
+                data['United Kingdom']['areas'][r] = {
+                    'cases': cases, 'last_update': now}
+
+            for r, cases in uk_regions.items():
+                data['United Kingdom']['areas'][r] = {
+                    'cases': cases, 'last_update': now}
+
+            self.cases = data
             await asyncio.get_running_loop().run_in_executor(None, self._update_index)
+
             self.next_update_at = now + datetime.timedelta(minutes=15)
         else:
             self.log.info('Too early to update - using cached data.')
@@ -307,20 +347,26 @@ class CovBot(Plugin):
             return
 
         m_loc, data = matches[0]
-        cases, recoveries, deaths, last_update = data['cases'], data[
-            'recoveries'], data['deaths'], data['last_update']
-        sick = cases - recoveries - deaths
+        cases, last_update = data['cases'], data['last_update']
+        s = f'In {m_loc} there have been a total of {cases:,} cases as of {last_update} UTC.'
 
-        per_rec = 0 if cases == 0 else int(recoveries) / int(cases) * 100
-        per_dead = 0 if cases == 0 else int(deaths) / int(cases) * 100
-        per_sick = 100 - per_rec - per_dead
+        if 'recoveries' in data and 'deaths' in data:
+            recoveries, deaths = data['recoveries'], data['deaths']
+            sick = cases - recoveries - deaths
+
+            per_rec = 0 if cases == 0 else int(recoveries) / int(cases) * 100
+            per_dead = 0 if cases == 0 else int(deaths) / int(cases) * 100
+            per_sick = 100 - per_rec - per_dead
+
+            s += (
+                f' Of these {sick:,} ({per_sick:.1f}%) are still sick or may have recovered without being recorded,'
+                f' {recoveries:,} ({per_rec:.1f}%) have definitely recovered'
+                f' and {deaths:,} ({per_dead:.1f}%) have died.'
+            )
 
         await self._respond(
             event,
-            f'In {m_loc} there have been a total of {cases:,} cases as of {last_update} UTC.'
-            f' Of these {sick:,} ({per_sick:.1f}%) are still sick or may have recovered without being recorded,'
-            f' {recoveries:,} ({per_rec:.1f}%) have definitely recovered'
-            f' and {deaths:,} ({per_dead:.1f}%) have died.'
+            s
         )
 
     @command.new('source', help=HELP['source'][1])
