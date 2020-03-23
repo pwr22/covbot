@@ -36,6 +36,10 @@ HELP = {
     'cases': ('!cases location', 'Get up to date info on cases, optionally in a specific location. You can give a country code, country name, state, country, region or city.'),
     'source': ('!source', 'Find out about my data sources and developers.'),
     'help': ('!help', 'Get a reminder what I can do for you.'),
+    'table': ('!table[html|short] location[s] ',
+              ('Get data in tablular format. '
+               'Separate places using semicolon (;). '
+               'Add html for HTML format, short for compact view'))
 }
 
 
@@ -602,9 +606,7 @@ class CovBot(Plugin):
             s
         )
 
-    @command.new('tablehtml', help="Show case information in an HTML table. "
-                 "Multiple locations can be separated using ;"
-                 "(semicolon) as a delimiter. Looks bad for mobile clients!")
+    @command.new('tablehtml', help=HELP["table"][1])
     @command.argument("location", pass_raw=True, required=False)
     async def tablehtml_handler(self, event: MessageEvent,
                                 location: str) -> None:
@@ -616,9 +618,7 @@ class CovBot(Plugin):
         await self._respondpre(event, m)
         return
 
-    @command.new('table', help="Show case information in a table. "
-                 "Multiple locations can be separated using ;"
-                 "(semicolon) as a delimiter.")
+    @command.new('table', help=HELP["table"][1])
     @command.argument("location", pass_raw=True, required=False)
     async def table_handler(self, event: MessageEvent, location: str) -> None:
         self.log.info("Handling table request")
@@ -629,11 +629,10 @@ class CovBot(Plugin):
         await self._respondpre(event, m)
         return
 
-    @command.new('tableshort', help="Show case information in a table. "
-                 "Multiple locations can be separated using ;"
-                 "(semicolon) as a delimiter.")
+    @command.new('tableshort', help=HELP["table"][1])
     @command.argument("location", pass_raw=True, required=False)
-    async def tablesmall_handler(self, event: MessageEvent, location: str) -> None:
+    async def tablesmall_handler(self, event: MessageEvent,
+                                 location: str) -> None:
         self.log.info("Handling short table request")
         table = await self._locations_table(location=location,
                                             tabletype="text",
