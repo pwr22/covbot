@@ -1,6 +1,7 @@
 from mautrix.types import EventType
 from maubot import Plugin, MessageEvent
 from maubot.handlers import event, command
+from mautrix.util.config import BaseProxyConfig, ConfigUpdateHelper
 
 import os
 import csv
@@ -20,6 +21,9 @@ from mautrix.client import MembershipEventDispatcher, InternalEventType
 
 CASE_DATA_URL = 'http://offloop.net/covid19h/unconfirmed.csv'
 GROUPS_URL = 'https://offloop.net/covid19h/groups.txt'
+UK_NHS_REGIONS_URL = 'https://www.arcgis.com/sharing/rest/content/items/ca796627a2294c51926865748c4a56e8/data'
+UK_REGIONS_URL = 'https://www.arcgis.com/sharing/rest/content/items/b684319181f94875a6879bbc833ca3a6/data'
+API_PAUSE = 5  # seconds
 
 COUNTRY_RENAMES = {
     'US': 'United States',
@@ -30,10 +34,15 @@ COUNTRY_RENAMES = {
 
 # command: ( usage, description )
 HELP = {
-    'cases': ('!cases [location]', 'Get current information on cases. Location is optional and can be a country, country code, state, county, region or city.'),
-    'source': ('!source', 'Where are my source code and data sources?'),
-    'help': ('!help', 'Get help using me!'),
+    'cases': ('!cases location', 'Get up to date info on cases, optionally in a specific location. You can give a country code, country name, state, country, region or city.'),
+    'source': ('!source', 'Find out about my data sources and developers.'),
+    'help': ('!help', 'Get a reminder what I can do for you.'),
 }
+
+
+class Config(BaseProxyConfig):
+    def do_update(self, helper: ConfigUpdateHelper) -> None:
+        helper.copy("admins")
 
 
 class CovBot(Plugin):
@@ -43,10 +52,44 @@ class CovBot(Plugin):
     schema: Schema = Schema(country=TEXT(stored=True), area=TEXT(
         stored=True), location=TEXT(stored=True))
     index: FileIndex = None
+    _rooms_joined = {}
+
+    async def _prune_dead_rooms(self):
+        while True:
+            users = set()
+            rooms = await self.client.get_joined_rooms()
+            self.log.info('I am in %s rooms.', len(rooms))
+
+            for r in rooms:
+                members = await self.client.get_joined_members(r)
+
+                if len(members) == 1:
+                    self.log.debug('Leaving room %s since it is empty.', r)
+                    await self.client.leave_room(r)
+                else:
+                    for m in members:
+                        users.add(m)
+
+                await asyncio.sleep(API_PAUSE)  # avoid throttling - no rush!
+
+            self.log.info('I talk to %s unique users.', len(users))
+            await asyncio.sleep(60 * 60 * 24) # once per day
+
+    @classmethod
+    def get_config_class(cls) -> BaseProxyConfig:
+        return Config
 
     async def start(self):
+        await super().start()
+        self.config.load_and_update()
         # So we can get room join events.
         self.client.add_dispatcher(MembershipEventDispatcher)
+        self._room_prune_task = asyncio.create_task(self._prune_dead_rooms())
+
+    async def stop(self):
+        await super().start()
+        self.client.remove_dispatcher(MembershipEventDispatcher)
+        self._room_prune_task.cancel()
 
     async def _get_country_groups(self):
         groups = {}
@@ -62,12 +105,39 @@ class CovBot(Plugin):
 
         return groups
 
+    async def _get_uk_nhs_regions(self):
+        regions = {}
+
+        async with self.http.get(UK_NHS_REGIONS_URL) as r:
+            t = await r.text()
+            l = t.splitlines()
+
+        # GSS_CD, NHSRNm, TotalCases
+        cr = csv.DictReader(l)
+        for row in cr:
+            regions[row['NHSRNm']] = int(row['TotalCases'].replace(',', ''))
+
+        return regions
+
+    async def _get_uk_regions(self):
+        regions = {}
+
+        async with self.http.get(UK_REGIONS_URL) as r:
+            t = await r.text()
+            l = t.splitlines()
+
+        # GSS_CD, GSS_NM, TotalCases
+        cr = csv.DictReader(l)
+        for row in cr:
+            regions[row['GSS_NM']] = int(row['TotalCases'].replace(',', ''))
+
+        return regions
+
     async def _get_case_data(self):
         countries = {}
         now = time.time() * 1000  # millis to match the data
 
         self.log.debug("Fetching %s.", CASE_DATA_URL)
-        l = None
         async with self.http.get(CASE_DATA_URL) as r:
             t = await r.text()
             l = t.splitlines()
@@ -127,12 +197,23 @@ class CovBot(Plugin):
         idx_w.commit()
 
     async def _update_data(self):
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.utcfromtimestamp(int(time.time()))
 
         if self.next_update_at == None or now >= self.next_update_at:
             self.log.info('Updating data.')
-            self.groups, self.cases = await asyncio.gather(self._get_country_groups(), self._get_case_data())
+            data, uk_nhs_regions, uk_regions = await asyncio.gather(self._get_case_data(), self._get_uk_nhs_regions(), self._get_uk_regions())
+
+            for r, cases in uk_nhs_regions.items():
+                data['United Kingdom']['areas'][r] = {
+                    'cases': cases, 'last_update': now}
+
+            for r, cases in uk_regions.items():
+                data['United Kingdom']['areas'][r] = {
+                    'cases': cases, 'last_update': now}
+
+            self.cases = data
             await asyncio.get_running_loop().run_in_executor(None, self._update_index)
+
             self.next_update_at = now + datetime.timedelta(minutes=15)
         else:
             self.log.info('Too early to update - using cached data.')
@@ -299,31 +380,39 @@ class CovBot(Plugin):
         if len(matches) == 0:
             await self._respond(
                 event,
-                f'I have searched my data but cannot find a match for {location}.'
-                ' It might be under a different name or there may be no cases!'
-                ' If I am wrong let @pwr22:shortestpath.dev know.'
+                f'My data doesn\'t seem to include {location}.'
+                ' It might be under a different name, data on it might not be available or there could even be no cases.'
+                ' You may have more luck if you try a less specific location, like the country it\'s in.'
+                f' \n\nIf you think I should have data on it you can open an issue at https://github.com/pwr22/covbot/issues and Peter will take a look.'
             )
             return
         elif len(matches) > 1:
-            ms = " - ".join(m[0] for m in matches)
-            await self._respond(event, f"Which of these did you mean? {ms}")
+            ms = "\n".join(m[0] for m in matches)
+            await self._respond(event, f"Which of these did you mean?\n\n{ms}")
             return
 
         m_loc, data = matches[0]
-        cases, recoveries, deaths, last_update = data['cases'], data[
-            'recoveries'], data['deaths'], data['last_update']
-        sick = cases - recoveries - deaths
+        cases, last_update = data['cases'], data['last_update']
+        s = f'In {m_loc} there have been a total of {cases:,} cases as of {last_update} UTC.'
 
-        per_rec = 0 if cases == 0 else int(recoveries) / int(cases) * 100
-        per_dead = 0 if cases == 0 else int(deaths) / int(cases) * 100
-        per_sick = 100 - per_rec - per_dead
+        # some data is more detailed
+        if 'recoveries' in data and 'deaths' in data:
+            recoveries, deaths = data['recoveries'], data['deaths']
+            sick = cases - recoveries - deaths
+
+            per_rec = 0 if cases == 0 else int(recoveries) / int(cases) * 100
+            per_dead = 0 if cases == 0 else int(deaths) / int(cases) * 100
+            per_sick = 100 - per_rec - per_dead
+
+            s += (
+                f' Of these {sick:,} ({per_sick:.1f}%) are still sick or may have recovered without being recorded,'
+                f' {recoveries:,} ({per_rec:.1f}%) have definitely recovered'
+                f' and {deaths:,} ({per_dead:.1f}%) have died.'
+            )
 
         await self._respond(
             event,
-            f'In {m_loc} there have been a total of {cases:,} cases as of {last_update} UTC.'
-            f' Of these {sick:,} ({per_sick:.1f}%) are still sick or may have recovered without being recorded,'
-            f' {recoveries:,} ({per_rec:.1f}%) have definitely recovered'
-            f' and {deaths:,} ({per_dead:.1f}%) have died.'
+            s
         )
 
     @command.new('tablehtml', help="Show case information in an HTML table. "
@@ -461,37 +550,53 @@ class CovBot(Plugin):
         self.log.info('Responding to source request.')
         await self._respond(
             event,
-            'I am MIT licensed on Github at https://github.com/pwr22/covbot.'
-            f' I fetch new data every 15 minutes from {CASE_DATA_URL}.'
+            'I was created by Peter Roberts and MIT licensed on Github at https://github.com/pwr22/covbot.'
+            f' I fetch new data every 15 minutes from {CASE_DATA_URL}, {UK_NHS_REGIONS_URL} and {UK_REGIONS_URL}.'
         )
-
-    async def _send_help(self, event: MessageEvent) -> None:
-        await self._respond(event, 'You can send me any of these commands:')
-        for (usage, desc) in HELP.values():
-            await self._respond(event, f'{usage} - {desc}')
 
     @command.new('help', help=HELP['help'][1])
     async def help_handler(self, event: MessageEvent) -> None:
         self.log.info('Responding to help request.')
 
-        await self._send_help(event)
+        s = 'You can message me any of these commands:\n\n'
+        s += '\n'.join(f'{usage} - {desc}' for (usage, desc) in HELP.values())
+        await self._message(event.room_id, s)
 
     async def _message(self, room_id, m: str) -> None:
         c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
         await self.client.send_message(room_id=room_id, content=c)
 
-    _rooms_joined = {}
+    @command.new('announce', help='Send broadcast a message to all rooms.')
+    @command.argument("message", pass_raw=True, required=True)
+    async def accounce(self, event: MessageEvent, message: str) -> None:
+        if event.sender not in self.config['admins']:
+            self.log.warn(
+                'User %s tried to send an announcement but only admins are authorised to do so.'
+                ' They tried to send %s.',
+                event.sender, message
+            )
+            await self._respond(event, 'You do not have permission to !announce.')
+            return None
+
+        rooms = await self.client.get_joined_rooms()
+        self.log.info('Sending announcement %s to all %s rooms',
+                      message, len(rooms))
+
+        for r in rooms:
+            await self._message(r, message)
+            await asyncio.sleep(API_PAUSE)  # no rush, avoid rate limiting
 
     @event.on(InternalEventType.JOIN)
     async def join_handler(self, event: InternalEventType.JOIN) -> None:
         me = await self.client.whoami()
+
+        # Ignore all joins but mine.
         if event.sender != me:
-            self.log.debug('Skipping join event from %s because I am %s', event.sender, me)
             return
 
         if event.room_id in self._rooms_joined:
-            self.log.warning('Already in room %s.', event.room_id)
-            self.log.warning('Event: %s.', event)
+            self.log.warning(
+                'Duplicate join event for room %s.', event.room_id)
             return
 
         # work around duplicate joins
@@ -499,7 +604,6 @@ class CovBot(Plugin):
         self.log.info(
             'Sending unsolicited help on join to room %s', event.room_id)
 
-        await self._message(event.room_id, 'Hi, I am a bot that tracks SARS-COV-2 infection statistics.')
-        await self._message(event.room_id, 'You can send me any of these commands:')
-        for (usage, desc) in HELP.values():
-            await self._message(event.room_id, f'{usage} - {desc}')
+        s = 'Hi, I am a bot that tracks SARS-COV-2 infection statistics for you. You can message me any of these commands:\n\n'
+        s += '\n'.join(f'{usage} - {desc}' for (usage, desc) in HELP.values())
+        await self._message(event.room_id, s)
