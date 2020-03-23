@@ -1,6 +1,6 @@
 maubot: 0.1.0
 id: dev.shortestpath.covbot
-version: 0.0.11
+version: 0.1.1
 license: MIT
 modules:
 - covbot
