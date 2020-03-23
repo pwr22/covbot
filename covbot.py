@@ -406,6 +406,135 @@ class CovBot(Plugin):
 
         return results
 
+    async def _locations_table(self, location: str,
+                               tabletype=str("text"),
+                               length=str("long")) -> str:
+        """Build a table of locations to respond to.
+
+        Can be:
+            - tabletype: text (default) or html
+            - length: long (default) or short
+        """
+        MISSINGDATA = "---"
+
+        # Preamble: set sane defaults
+        if location == "":
+            location = "World"
+
+        try:
+            await self._update_data()
+        except Exception as e:
+            self.log.warn('Failed to update data: %s.', e)
+            await event.respond("Something went wrong fetching "
+                                "the latest data so stats may be outdated.")
+
+        results = await self._get_multiple_locations(location)
+
+        if not results:
+            return
+
+        columns = ["Location", "Cases"]
+
+        if [v for v in results.values() if "recoveries" in v]:
+            # At least one of the results has recovery data
+            columns.extend(["Recovered", "%"])
+
+        if [v for v in results.values() if "deaths" in v]:
+            # At least one of the results has deaths data
+            columns.extend(["Deaths", "%"])
+
+        if "Recovered" in columns and "Deaths" in columns:
+            # L - C - S - R - D
+            columns.insert(2, "Sick")
+            columns.insert(3, "%")
+
+        tabledata = []
+        total_cases = total_sick = total_recoveries = total_deaths = 0
+        for location, data in results.items():
+            rowdata = []
+
+            # Location
+            if length == "short":
+                rowdata.extend([self._short_location(location)])
+            else:
+                rowdata.extend([location])
+
+            # Cases
+            rowdata.extend([data["cases"]])
+            total_cases += data['cases']
+
+            # TODO: decide if eliding % columns
+            if "recoveries" in data:
+                per_rec = 0 if data['cases'] == 0 else \
+                    int(data['recoveries']) / int(data['cases']) * 100
+                per_rec_f = f"{per_rec:.1f}"
+                total_recoveries += data['recoveries']
+
+                rowdata.extend([data["recoveries"], per_rec_f])
+            else:
+                rowdata.extend([MISSINGDATA, MISSINGDATA])
+
+            if "deaths" in data:
+                per_dead = 0 if data['cases'] == 0 else \
+                    int(data['deaths']) / int(data['cases']) * 100
+                per_dead_f = f"{per_dead:.1f}"
+                total_deaths += data['deaths']
+
+                rowdata.extend([data["deaths"], per_dead_f])
+            else:
+                rowdata.extend([MISSINGDATA, MISSINGDATA])
+
+            if "recoveries" in data and "deaths" in data:
+                sick = data['cases'] - int(data['recoveries']) - data['deaths']
+                per_sick = 100 - per_rec - per_dead
+                per_sick_f = f"{per_sick:.1f}"
+                total_sick += sick
+
+                rowdata.insert(2, sick)
+                rowdata.insert(3, per_sick_f)
+            else:
+                rowdata.extend([MISSINGDATA, MISSINGDATA])
+
+            tabledata.append(rowdata)
+
+        per_total_rec = 0 if total_cases == 0 else \
+            int(total_recoveries) / int(total_cases) * 100
+        per_total_dead = 0 if total_cases == 0 else \
+            int(total_deaths) / int(total_cases) * 100
+        per_total_sick = 100 - per_total_rec - per_total_dead
+
+        per_total_rec_f = f"{per_total_rec:.1f}"
+        per_total_dead_f = f"{per_total_dead:.1f}"
+        per_total_sick_f = f"{per_total_sick:.1f}"
+
+        # Total row (table foot)
+        tablefoot = ["Total", total_cases]
+
+        if "Sick" in columns:
+            tablefoot.extend([total_sick, per_total_sick_f])
+        if "Recovered" in columns:
+            tablefoot.extend([total_recoveries, per_total_rec_f])
+        if "Deaths" in columns:
+            tablefoot.extend([total_deaths, per_total_dead_f])
+
+        tabledata.append(tablefoot)
+
+        # Shorten columns if needed
+        if length == "short":
+            columns = [w.replace("Recovered", "Rec'd") for w in columns]
+
+        # Build table
+        if tabletype == "html":
+            tablefmt = "html"
+        else:
+            tablefmt = "presto"
+
+        table = tabulate(tabledata, headers=columns,
+                         tablefmt=tablefmt, floatfmt=".1f")
+
+        if results:
+            return table
+
     @staticmethod
     async def _respond(e: MessageEvent, m: str) -> None:
         c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
@@ -480,229 +609,38 @@ class CovBot(Plugin):
     async def tablehtml_handler(self, event: MessageEvent,
                                 location: str) -> None:
         self.log.info("Handling HTML table request")
-        if location == "":
-            location = "World"
-
-        try:
-            await self._update_data()
-        except Exception as e:
-            self.log.warn('Failed to update data: %s.', e)
-            await event.respond("Something went wrong fetching "
-                                "the latest data so stats may be outdated.")
-
-        results = await self._get_multiple_locations(location)
-
-        if not results:
-            return
-
-        tablehead = ("<thead><tr><th>Location</th><th>Cases</th>"
-                     "<th>Still Sick</th><th>%</th>"
-                     "<th>Recoveries</th><th>%</th>"
-                     "<th>Deaths</th><th>%</th></tr></thead>")
-        tabledata = ""
-        total_cases = total_sick = total_recoveries = total_deaths = 0
-        for location, data in results.items():
-
-            sick = data['cases'] - data['recoveries'] - data['deaths']
-            per_rec = 0 if data['cases'] == 0 else \
-                int(data['recoveries']) / int(data['cases']) * 100
-            per_dead = 0 if data['cases'] == 0 else \
-                int(data['deaths']) / int(data['cases']) * 100
-            per_sick = 100 - per_rec - per_dead
-
-            total_cases += data['cases']
-            total_sick += sick
-            total_recoveries += data['recoveries']
-            total_deaths += data['deaths']
-
-            tabledata += (f"<tr><td>{location}</td> <td>{data['cases']}</td> "
-                          f"<td>{sick}</td><td>{per_sick:.1f}</td>"
-                          f"<td>{data['recoveries']}</td>"
-                          f"<td>{per_rec:.1f}</td>"
-                          f"<td>{data['deaths']}</td>"
-                          f"<td>{per_dead:.1f}</td></tr>")
-
-        per_total_rec = 0 if total_cases == 0 else \
-            int(total_recoveries) / int(total_cases) * 100
-        per_total_dead = 0 if total_cases == 0 else \
-            int(total_deaths) / int(total_cases) * 100
-        per_total_sick = 100 - per_total_rec - per_total_dead
-
-        tablefoot = (f"<tr></tr><tr><tfoot><td><em>Total</em></td>"
-                     f"<td><em>{total_cases}</em></td>"
-                     f"<td><em>{total_sick}</em></td>"
-                     f"<td><em>{per_total_sick:.1f}</em></td>"
-                     f"<td><em>{total_recoveries}</td>"
-                     f"<td><em>{per_total_rec:.1f}</em></td>"
-                     f"<td><em>{total_deaths}</td>"
-                     f"<td><em>{per_total_dead:.1f}</em></td>"
-                     "</tfoot></tr>")
-
-        if results:
-            await self._respond(f"<table>{tablehead}{tabledata}{tablefoot}"
-                                "</table>", allow_html=True)
+        table = await self._locations_table(location=location,
+                                            tabletype="html",
+                                            length="long")
+        m = f"{table}"
+        await self._respondpre(event, m)
+        return
 
     @command.new('table', help="Show case information in a table. "
                  "Multiple locations can be separated using ;"
                  "(semicolon) as a delimiter.")
     @command.argument("location", pass_raw=True, required=False)
     async def table_handler(self, event: MessageEvent, location: str) -> None:
-        MISSING = "---"
         self.log.info("Handling table request")
-        if location == "":
-            location = "World"
+        table = await self._locations_table(location=location,
+                                            tabletype="text",
+                                            length="long")
+        m = f"<pre>{table}</pre>"
+        await self._respondpre(event, m)
+        return
 
-        try:
-            await self._update_data()
-        except Exception as e:
-            self.log.warn('Failed to update data: %s.', e)
-            await event.respond("Something went wrong fetching "
-                                "the latest data so stats may be outdated.")
-
-        results = await self._get_multiple_locations(location)
-
-        if not results:
-            return
-
-        tablehead = ["Location", "Cases", "Still Sick", "%",
-                     "Recoveries", "%", "Deaths", "%"]
-        tabledata = []
-        total_cases = total_sick = total_recoveries = total_deaths = 0
-        missing_data = False
-        for location, data in results.items():
-            if "recoveries" in data and "deaths" in data:
-                sick = data['cases'] - int(data['recoveries']) - data['deaths']
-                per_rec = 0 if data['cases'] == 0 else \
-                    int(data['recoveries']) / int(data['cases']) * 100
-                per_rec_f = f"{per_rec:.1f}"
-                per_dead = 0 if data['cases'] == 0 else \
-                    int(data['deaths']) / int(data['cases']) * 100
-                per_dead_f = f"{per_dead:.1f}"
-                per_sick = 100 - per_rec - per_dead
-                per_sick_f = f"{per_sick:.1f}"
-
-                total_sick += sick
-                total_recoveries += data['recoveries']
-                total_deaths += data['deaths']
-            else:
-                missing_data = True
-                data['recoveries'] = data['deaths'] = sick = \
-                    per_sick_f = per_rec_f = per_dead_f = \
-                    MISSING
-
-            total_cases += data['cases']
-
-            tabledata.append([location, data['cases'], sick, per_sick_f,
-                              data['recoveries'], per_rec_f,
-                              data['deaths'], per_dead_f])
-
-        if missing_data:
-            per_total_rec_f = per_total_dead_f = per_total_sick_f = \
-                    total_recoveries = total_deaths = total_sick = \
-                    MISSING
-        else:
-            per_total_rec = 0 if total_cases == 0 else \
-                int(total_recoveries) / int(total_cases) * 100
-            per_total_dead = 0 if total_cases == 0 else \
-                int(total_deaths) / int(total_cases) * 100
-            per_total_sick = 100 - per_total_rec - per_total_dead
-
-            per_total_rec_f = f"{per_total_rec:.1f}"
-            per_total_dead_f = f"{per_total_dead:.1f}"
-            per_total_sick_f = f"{per_total_sick:.1f}"
-
-        tablefoot = ["Total", total_cases, total_sick, per_total_sick_f,
-                     total_recoveries, per_total_rec_f,
-                     total_deaths, per_total_dead_f]
-        tabledata.append(tablefoot)
-
-        table = tabulate(tabledata, headers=tablehead,
-                         tablefmt="presto", floatfmt=".1f")
-
-        if results:
-            await event.respond(f"```\n{table}\n```", markdown=True)
-
-    @command.new('tablesmall', help="Show case information in a table. "
+    @command.new('tableshort', help="Show case information in a table. "
                  "Multiple locations can be separated using ;"
                  "(semicolon) as a delimiter.")
     @command.argument("location", pass_raw=True, required=False)
     async def tablesmall_handler(self, event: MessageEvent, location: str) -> None:
-        MISSING = "---"
-        self.log.info("Handling table request")
-        if location == "":
-            location = "World"
-
-        try:
-            await self._update_data()
-        except Exception as e:
-            self.log.warn('Failed to update data: %s.', e)
-            await event.respond("Something went wrong fetching "
-                                "the latest data so stats may be outdated.")
-
-        results = await self._get_multiple_locations(location)
-
-        if not results:
-            return
-
-        tablehead = ["Location", "Cases", "Sick", "%",
-                     "Rec'd", "%", "Deaths", "%"]
-        tabledata = []
-        total_cases = total_sick = total_recoveries = total_deaths = 0
-        missing_data = False
-        for location, data in results.items():
-            if "recoveries" in data and "deaths" in data:
-                sick = data['cases'] - int(data['recoveries']) - data['deaths']
-                per_rec = 0 if data['cases'] == 0 else \
-                    int(data['recoveries']) / int(data['cases']) * 100
-                per_rec_f = f"{per_rec:.1f}"
-                per_dead = 0 if data['cases'] == 0 else \
-                    int(data['deaths']) / int(data['cases']) * 100
-                per_dead_f = f"{per_dead:.1f}"
-                per_sick = 100 - per_rec - per_dead
-                per_sick_f = f"{per_sick:.1f}"
-
-                total_sick += sick
-                total_recoveries += data['recoveries']
-                total_deaths += data['deaths']
-            else:
-                missing_data = True
-                data['recoveries'] = data['deaths'] = sick = \
-                    per_sick_f = per_rec_f = per_dead_f = \
-                    MISSING
-
-            total_cases += data['cases']
-
-            tabledata.append([self._short_location(location),
-                              data['cases'], sick, per_sick_f,
-                              data['recoveries'], per_rec_f,
-                              data['deaths'], per_dead_f])
-
-        if missing_data:
-            per_total_rec_f = per_total_dead_f = per_total_sick_f = \
-                    total_recoveries = total_deaths = total_sick = \
-                    MISSING
-        else:
-            per_total_rec = 0 if total_cases == 0 else \
-                int(total_recoveries) / int(total_cases) * 100
-            per_total_dead = 0 if total_cases == 0 else \
-                int(total_deaths) / int(total_cases) * 100
-            per_total_sick = 100 - per_total_rec - per_total_dead
-
-            per_total_rec_f = f"{per_total_rec:.1f}"
-            per_total_dead_f = f"{per_total_dead:.1f}"
-            per_total_sick_f = f"{per_total_sick:.1f}"
-
-        tablefoot = ["Total", total_cases, total_sick, per_total_sick_f,
-                     total_recoveries, per_total_rec_f,
-                     total_deaths, per_total_dead_f]
-        tabledata.append(tablefoot)
-
-        table = tabulate(tabledata, headers=tablehead,
-                         tablefmt="presto", floatfmt=".1f")
-
-        if results:
-            m = f"<pre>{table}</pre>"
-            await self._respondpre(event, m)
+        self.log.info("Handling short table request")
+        table = await self._locations_table(location=location,
+                                            tabletype="text",
+                                            length="short")
+        m = f"<pre>{table}</pre>"
+        await self._respondpre(event, m)
+        return
 
     @command.new('source', help=HELP['source'][1])
     async def source_handler(self, event: MessageEvent) -> None:
