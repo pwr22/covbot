@@ -318,7 +318,7 @@ class CovBot(Plugin):
 
     @staticmethod
     async def _respond(e: MessageEvent, m: str) -> None:
-        c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
+        c = TextMessageEventContent(msgtype=MessageType.NOTICE, body=m)
         await e.respond(c)
 
     @command.new('cases', help=HELP['cases'][1])
@@ -391,10 +391,10 @@ class CovBot(Plugin):
 
         s = 'You can message me any of these commands:\n\n'
         s += '\n'.join(f'{usage} - {desc}' for (usage, desc) in HELP.values())
-        await self._message(event.room_id, s)
+        await self._respond(event, s)
 
     async def _message(self, room_id, m: str) -> None:
-        c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
+        c = TextMessageEventContent(msgtype=MessageType.NOTICE, body=m)
         await self.client.send_message(room_id=room_id, content=c)
 
     @command.new('announce', help='Send broadcast a message to all rooms.')
