@@ -5,8 +5,6 @@ from mautrix.util.config import BaseProxyConfig, ConfigUpdateHelper
 
 import os
 import csv
-import requests
-import pprint
 import datetime
 import asyncio
 import whoosh
@@ -481,7 +479,7 @@ class CovBot(Plugin):
                      "</tfoot></tr>")
 
         if results:
-            await event.respond(f"<table>{tablehead}{tabledata}{tablefoot}"
+            await self._respond(f"<table>{tablehead}{tabledata}{tablefoot}"
                                 "</table>", allow_html=True)
 
     @command.new('table', help="Show case information in a table. "
@@ -489,7 +487,87 @@ class CovBot(Plugin):
                  "(semicolon) as a delimiter.")
     @command.argument("location", pass_raw=True, required=False)
     async def table_handler(self, event: MessageEvent, location: str) -> None:
+        MISSING = "---"
         self.log.info("Handling table request")
+        if location == "":
+            location = "World"
+
+        try:
+            await self._update_data()
+        except Exception as e:
+            self.log.warn('Failed to update data: %s.', e)
+            await event.respond("Something went wrong fetching "
+                                "the latest data so stats may be outdated.")
+
+        results = await self._get_multiple_locations(location)
+
+        if not results:
+            return
+
+        tablehead = ["Location", "Cases", "Still Sick", "%",
+                     "Recoveries", "%", "Deaths", "%"]
+        tabledata = []
+        total_cases = total_sick = total_recoveries = total_deaths = 0
+        missing_data = False
+        for location, data in results.items():
+            if "recoveries" in data and "deaths" in data:
+                sick = data['cases'] - data['recoveries'] - data['deaths']
+                per_rec = 0 if data['cases'] == 0 else \
+                    int(data['recoveries']) / int(data['cases']) * 100
+                per_rec_f = f"{per_rec:.1f}"
+                per_dead = 0 if data['cases'] == 0 else \
+                    int(data['deaths']) / int(data['cases']) * 100
+                per_dead_f = f"{per_dead:.1f}"
+                per_sick = 100 - per_rec - per_dead
+                per_sick_f = f"{per_sick:.1f}"
+
+                total_sick += sick
+                total_recoveries += data['recoveries']
+                total_deaths += data['deaths']
+            else:
+                missing_data = True
+                data['recoveries'] = data['deaths'] = sick = \
+                    per_sick_f = per_rec_f = per_dead_f = \
+                    MISSING
+
+            total_cases += data['cases']
+
+            tabledata.append([location, data['cases'], sick, per_sick_f,
+                              data['recoveries'], per_rec_f,
+                              data['deaths'], per_dead_f])
+
+        if missing_data:
+            per_total_rec_f = per_total_dead_f = per_total_sick_f = \
+                    total_recoveries = total_deaths = total_sick = \
+                    MISSING
+        else:
+            per_total_rec = 0 if total_cases == 0 else \
+                int(total_recoveries) / int(total_cases) * 100
+            per_total_dead = 0 if total_cases == 0 else \
+                int(total_deaths) / int(total_cases) * 100
+            per_total_sick = 100 - per_total_rec - per_total_dead
+
+            per_total_rec_f = f"{per_total_rec:.1f}"
+            per_total_dead_f = f"{per_total_dead:.1f}"
+            per_total_sick_f = f"{per_total_sick:.1f}"
+
+        tablefoot = ["Total", total_cases, total_sick, per_total_sick_f,
+                     total_recoveries, per_total_rec_f,
+                     total_deaths, per_total_dead_f]
+        tabledata.append(tablefoot)
+
+        table = tabulate(tabledata, headers=tablehead,
+                         tablefmt="presto", floatfmt=".1f")
+
+        if results:
+            await event.respond(f"<pre>{table}</pre>", allow_html=True)
+
+    @command.new('tablesmall', help="Show case information in a mobile-friendly table. "
+                 "Multiple locations can be separated using ;"
+                 "(semicolon) as a delimiter.")
+    @command.argument("location", pass_raw=True, required=False)
+    async def tablesmall_handler(self, event: MessageEvent, location: str) -> None:
+        self.log.info("Handling tablesmall request")
         if location == "":
             location = "World"
 
@@ -544,7 +622,6 @@ class CovBot(Plugin):
 
         if results:
             await event.respond(f"<pre>{table}</pre>", allow_html=True)
-
     @command.new('source', help=HELP['source'][1])
     async def source_handler(self, event: MessageEvent) -> None:
         self.log.info('Responding to source request.')
