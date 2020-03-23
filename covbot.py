@@ -1,5 +1,6 @@
 from mautrix.types import EventType
 from maubot import Plugin, MessageEvent
+from maubot.matrix import parse_formatted
 from maubot.handlers import event, command
 from mautrix.util.config import BaseProxyConfig, ConfigUpdateHelper
 
@@ -367,7 +368,6 @@ class CovBot(Plugin):
                 location[-int((length-2)/2):]
             ])
 
-
     async def _get_multiple_locations(self, location: str) -> dict:
         """Split locations on ';' and look up"""
 
@@ -410,6 +410,13 @@ class CovBot(Plugin):
     async def _respond(e: MessageEvent, m: str) -> None:
         c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
         await e.respond(c)
+
+    @staticmethod
+    async def _respondpre(e: MessageEvent, m: str) -> None:
+        c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
+        c.body, c.formatted_body = parse_formatted(m, allow_html=True)
+        c.format = "org.matrix.custom.html"
+        await e.respond(c, markdown=True, allow_html=True)
 
     @command.new('cases', help=HELP['cases'][1])
     @command.argument("location", pass_raw=True, required=False)
@@ -564,7 +571,7 @@ class CovBot(Plugin):
         missing_data = False
         for location, data in results.items():
             if "recoveries" in data and "deaths" in data:
-                sick = data['cases'] - data['recoveries'] - data['deaths']
+                sick = data['cases'] - int(data['recoveries']) - data['deaths']
                 per_rec = 0 if data['cases'] == 0 else \
                     int(data['recoveries']) / int(data['cases']) * 100
                 per_rec_f = f"{per_rec:.1f}"
@@ -613,7 +620,7 @@ class CovBot(Plugin):
                          tablefmt="presto", floatfmt=".1f")
 
         if results:
-            await event.respond(f"<pre>{table}</pre>", allow_html=True)
+            await event.respond(f"```\n{table}\n```", markdown=True)
 
     @command.new('tablesmall', help="Show case information in a table. "
                  "Multiple locations can be separated using ;"
@@ -637,8 +644,8 @@ class CovBot(Plugin):
         if not results:
             return
 
-        tablehead = ["Location", "Cases", "Still Sick", "%",
-                     "Recoveries", "%", "Deaths", "%"]
+        tablehead = ["Location", "Cases", "Sick", "%",
+                     "Rec'd", "%", "Deaths", "%"]
         tabledata = []
         total_cases = total_sick = total_recoveries = total_deaths = 0
         missing_data = False
@@ -694,9 +701,8 @@ class CovBot(Plugin):
                          tablefmt="presto", floatfmt=".1f")
 
         if results:
-            await event.respond(f"<pre>{table}</pre>", allow_html=True)
-
-
+            m = f"<pre>{table}</pre>"
+            await self._respondpre(event, m)
 
     @command.new('source', help=HELP['source'][1])
     async def source_handler(self, event: MessageEvent) -> None:
