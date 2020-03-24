@@ -17,12 +17,13 @@ from whoosh.qparser import QueryParser
 from tabulate import tabulate
 from mautrix.types import TextMessageEventContent, MessageType
 from mautrix.client import MembershipEventDispatcher, InternalEventType
+from mautrix.errors.request import MLimitExceeded
 
 CASE_DATA_URL = 'http://offloop.net/covid19h/unconfirmed.csv'
 GROUPS_URL = 'https://offloop.net/covid19h/groups.txt'
 UK_NHS_REGIONS_URL = 'https://www.arcgis.com/sharing/rest/content/items/ca796627a2294c51926865748c4a56e8/data'
 UK_REGIONS_URL = 'https://www.arcgis.com/sharing/rest/content/items/b684319181f94875a6879bbc833ca3a6/data'
-API_PAUSE = 5  # seconds
+RATE_LIMIT_BACKOFF_SECONDS = 10
 
 COUNTRY_RENAMES = {
     'US': 'United States',
@@ -42,11 +43,9 @@ HELP = {
                'Add html for HTML format, short for compact view'))
 }
 
-
 class Config(BaseProxyConfig):
     def do_update(self, helper: ConfigUpdateHelper) -> None:
         helper.copy("admins")
-
 
 class CovBot(Plugin):
     groups = {}
@@ -57,23 +56,29 @@ class CovBot(Plugin):
     index: FileIndex = None
     _rooms_joined = {}
 
+    async def _handle_rate_limit(self, api_call_wrapper):
+        while True:
+            try:
+                return await api_call_wrapper()
+            except MLimitExceeded:
+                self.log.warning('API rate limit exceepted so backing off for %s seconds.', RATE_LIMIT_BACKOFF_SECONDS)
+                await asyncio.sleep(RATE_LIMIT_BACKOFF_SECONDS)
+
     async def _prune_dead_rooms(self):
         while True:
             users = set()
-            rooms = await self.client.get_joined_rooms()
+            rooms = await self._handle_rate_limit(lambda: self.client.get_joined_rooms())
             self.log.info('I am in %s rooms.', len(rooms))
 
             for r in rooms:
-                members = await self.client.get_joined_members(r)
+                members = await self._handle_rate_limit(lambda: self.client.get_joined_members(r))
 
                 if len(members) == 1:
                     self.log.debug('Leaving room %s since it is empty.', r)
-                    await self.client.leave_room(r)
+                    await self._handle_rate_limit(lambda: self.client.leave_room(r))
                 else:
                     for m in members:
                         users.add(m)
-
-                await asyncio.sleep(API_PAUSE)  # avoid throttling - no rush!
 
             self.log.info('I talk to %s unique users.', len(users))
             await asyncio.sleep(60 * 60 * 24) # once per day
@@ -539,10 +544,9 @@ class CovBot(Plugin):
         if results:
             return table
 
-    @staticmethod
-    async def _respond(e: MessageEvent, m: str) -> None:
+    async def _respond(self, e: MessageEvent, m: str) -> None:
         c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
-        await e.respond(c)
+        await self._handle_rate_limit(lambda: e.respond(c))
 
     @staticmethod
     async def _respondpre(e: MessageEvent, m: str) -> None:
@@ -660,11 +664,12 @@ class CovBot(Plugin):
 
     async def _message(self, room_id, m: str) -> None:
         c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
-        await self.client.send_message(room_id=room_id, content=c)
+        await self._handle_rate_limit(lambda: self.client.send_message(room_id=room_id, content=c))
 
     @command.new('announce', help='Send broadcast a message to all rooms.')
     @command.argument("message", pass_raw=True, required=True)
     async def accounce(self, event: MessageEvent, message: str) -> None:
+        
         if event.sender not in self.config['admins']:
             self.log.warn(
                 'User %s tried to send an announcement but only admins are authorised to do so.'
@@ -674,17 +679,16 @@ class CovBot(Plugin):
             await self._respond(event, 'You do not have permission to !announce.')
             return None
 
-        rooms = await self.client.get_joined_rooms()
+        rooms = await self._handle_rate_limit(lambda: self.client.get_joined_rooms())
         self.log.info('Sending announcement %s to all %s rooms',
                       message, len(rooms))
 
         for r in rooms:
             await self._message(r, message)
-            await asyncio.sleep(API_PAUSE)  # no rush, avoid rate limiting
 
     @event.on(InternalEventType.JOIN)
     async def join_handler(self, event: InternalEventType.JOIN) -> None:
-        me = await self.client.whoami()
+        me = await self._handle_rate_limit(lambda: self.client.whoami())
 
         # Ignore all joins but mine.
         if event.sender != me:
