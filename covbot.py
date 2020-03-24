@@ -37,10 +37,11 @@ HELP = {
     'cases': ('!cases location', 'Get up to date info on cases, optionally in a specific location. You can give a country code, country name, state, country, region or city.'),
     'source': ('!source', 'Find out about my data sources and developers.'),
     'help': ('!help', 'Get a reminder what I can do for you.'),
-    'table': ('!table[html|short] location[s] ',
+    'table': ('!table[html|short|tiny] location[s] ',
               ('Get data in tablular format. '
                'Separate places using semicolon (;). '
-               'Add html for HTML format, short for compact view'))
+               'Add html for HTML format, short for compact view, '
+               'tiny for case-only view'))
 }
 
 class Config(BaseProxyConfig):
@@ -531,6 +532,10 @@ class CovBot(Plugin):
         # Shorten columns if needed
         if length == "short":
             columns = [w.replace("Recovered", "Rec'd") for w in columns]
+        # Minimal- cases only:
+        if length == "tiny":
+            columns = columns[:2]
+            tabledata = [row[:2] for row in tabledata]
 
         # Build table
         if tabletype == "html":
@@ -641,6 +646,18 @@ class CovBot(Plugin):
         table = await self._locations_table(location=location,
                                             tabletype="text",
                                             length="short")
+        m = f"<pre>{table}</pre>"
+        await self._respondpre(event, m)
+        return
+
+    @command.new('tabletiny', help=HELP["table"][1])
+    @command.argument("location", pass_raw=True, required=False)
+    async def tabletiny_handler(self, event: MessageEvent,
+                                location: str) -> None:
+        self.log.info("Handling short table request")
+        table = await self._locations_table(location=location,
+                                            tabletype="text",
+                                            length="tiny")
         m = f"<pre>{table}</pre>"
         await self._respondpre(event, m)
         return
