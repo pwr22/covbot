@@ -562,7 +562,6 @@ class CovBot(Plugin):
             columns = [w.replace("Recovered", "Rec'd") for w in columns]
         # Minimal- cases only:
         if length == "tiny":
-            self.log.info("Tiny table")
             columns = columns[:2]
             tabledata = [row[:2] for row in tabledata]
 
@@ -584,6 +583,15 @@ class CovBot(Plugin):
 
     @staticmethod
     async def _respond_formatted(e: MessageEvent, m: str) -> None:
+        """Respond with formatted message in m.text matrix format,
+        not m.notice.
+
+        This is needed as mobile clients (Riot 0.9.10, RiotX) currently
+        do not seem to render markdown / HTML in m.notice events
+        which are conventionally send by bots.
+
+        Desktop/web Riot.im does render MD/HTML in m.notice, however.
+        """
         c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
         c.body, c.formatted_body = parse_formatted(m, allow_html=True)
         c.format = "org.matrix.custom.html"
