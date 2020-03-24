@@ -347,7 +347,7 @@ class CovBot(Plugin):
 
         Example (length=12):
             United States → US
-            Bristol, United Kingdom → Bristol, UK
+            Manchester, GB → Manch..r ,GB
         """
 
         # Exact country case (1)
@@ -378,7 +378,7 @@ class CovBot(Plugin):
                 location[-int((length-2)/2):]
             ])
 
-    async def _get_multiple_locations(self, location: str) -> dict:
+    async def _get_multiple_locations(self, event: MessageEvent, location: str) -> dict:
         """Split locations on ';' and look up"""
 
         results = {}
@@ -390,11 +390,13 @@ class CovBot(Plugin):
                 matches = await asyncio.get_running_loop().run_in_executor(
                     None, self._get_data_for, loc)
                 if len(matches) == 0:
-                    await event.respond(f"I cannot find a match for {loc}")
+                    await self._respond(event,
+                                        f"I cannot find a match for {loc}")
                     return {}
                 elif len(matches) > 1:
                     ms = " - ".join(m[0] for m in matches)
-                    await event.respond(f"Multiple results for {loc}: {ms}. "
+                    await self._respond(event,
+                                        f"Multiple results for {loc}: {ms}. "
                                         "Please provide one.")
                     return {}
                 else:
@@ -404,11 +406,13 @@ class CovBot(Plugin):
             matches = await asyncio.get_running_loop().run_in_executor(
                 None, self._get_data_for, location)
             if len(matches) == 0:
-                await event.respond(f"I cannot find a match for {location}")
+                await self._respond(event,
+                                    f"I cannot find a match for {location}")
                 return {}
             elif len(matches) > 1:
                 ms = " - ".join(m[0] for m in matches)
-                await event.respond(f"Multiple results for {location}: {ms}. "
+                await self._respond(event,
+                                    f"Multiple results for {location}: {ms}. "
                                     "Please provide one.")
                 return {}
             else:
@@ -416,14 +420,35 @@ class CovBot(Plugin):
 
         return results
 
-    async def _locations_table(self, location: str,
+    async def _locations_table(self, event: MessageEvent, location: str,
                                tabletype=str("text"),
                                length=str("long")) -> str:
         """Build a table of locations to respond to.
 
+        Uses tabulate module to tabulate data.
+
         Can be:
             - tabletype: text (default) or html
-            - length: long (default) or short
+            - length: long (default), short or tiny
+
+        Missing data (eg PHE) is handled and replaced
+        by '---'; although this throws off tabulate's
+        auto-alignment of numerical data.
+
+        Tables by default report in following columns:
+            - Location
+            - Cases
+            - Sick (%)
+            - Recovered (%)
+            - Deaths (%)
+
+        Short table limits 'Location' to <= 12 chars
+        and renames 'Recovered' to "Rec'd".
+
+        Tiny table only outputs Loction and Cases columns.
+
+        Table includes a 'Total' row, even where this makes
+        no meaningful sense (eg countries + world data).
         """
         MISSINGDATA = "---"
 
@@ -438,7 +463,7 @@ class CovBot(Plugin):
             await event.respond("Something went wrong fetching "
                                 "the latest data so stats may be outdated.")
 
-        results = await self._get_multiple_locations(location)
+        results = await self._get_multiple_locations(event, location)
 
         if not results:
             return
@@ -505,6 +530,9 @@ class CovBot(Plugin):
             else:
                 rowdata.extend([MISSINGDATA, MISSINGDATA])
 
+            # Trim data for which there are no columns
+            rowdata = rowdata[:len(columns)]
+
             tabledata.append(rowdata)
 
         per_total_rec = 0 if total_cases == 0 else \
@@ -534,6 +562,7 @@ class CovBot(Plugin):
             columns = [w.replace("Recovered", "Rec'd") for w in columns]
         # Minimal- cases only:
         if length == "tiny":
+            self.log.info("Tiny table")
             columns = columns[:2]
             tabledata = [row[:2] for row in tabledata]
 
@@ -620,22 +649,24 @@ class CovBot(Plugin):
     async def tablehtml_handler(self, event: MessageEvent,
                                 location: str) -> None:
         self.log.info("Handling HTML table request")
-        table = await self._locations_table(location=location,
+        table = await self._locations_table(event, location=location,
                                             tabletype="html",
                                             length="long")
-        m = f"{table}"
-        await self._respond_formatted(event, m)
+        if table:
+            m = f"{table}"
+            await self._respond_formatted(event, m)
         return
 
     @command.new('table', help=HELP["table"][1])
     @command.argument("location", pass_raw=True, required=False)
     async def table_handler(self, event: MessageEvent, location: str) -> None:
         self.log.info("Handling table request")
-        table = await self._locations_table(location=location,
+        table = await self._locations_table(event, location=location,
                                             tabletype="text",
                                             length="long")
-        m = f"<pre>{table}</pre>"
-        await self._respond_formatted(event, m)
+        if table:
+            m = f"<pre>{table}</pre>"
+            await self._respond_formatted(event, m)
         return
 
     @command.new('tableshort', help=HELP["table"][1])
@@ -643,23 +674,25 @@ class CovBot(Plugin):
     async def tablesmall_handler(self, event: MessageEvent,
                                  location: str) -> None:
         self.log.info("Handling short table request")
-        table = await self._locations_table(location=location,
+        table = await self._locations_table(event, location=location,
                                             tabletype="text",
                                             length="short")
-        m = f"<pre>{table}</pre>"
-        await self._respond_formatted(event, m)
+        if table:
+            m = f"<pre>{table}</pre>"
+            await self._respond_formatted(event, m)
         return
 
     @command.new('tabletiny', help=HELP["table"][1])
     @command.argument("location", pass_raw=True, required=False)
     async def tabletiny_handler(self, event: MessageEvent,
                                 location: str) -> None:
-        self.log.info("Handling short table request")
-        table = await self._locations_table(location=location,
+        self.log.info("Handling tiny table request")
+        table = await self._locations_table(event, location=location,
                                             tabletype="text",
                                             length="tiny")
-        m = f"<pre>{table}</pre>"
-        await self._respond_formatted(event, m)
+        if table:
+            m = f"<pre>{table}</pre>"
+            await self._respond_formatted(event, m)
         return
 
     @command.new('source', help=HELP['source'][1])
