@@ -554,7 +554,7 @@ class CovBot(Plugin):
         await self._handle_rate_limit(lambda: e.respond(c))
 
     @staticmethod
-    async def _respondpre(e: MessageEvent, m: str) -> None:
+    async def _respond_formatted(e: MessageEvent, m: str) -> None:
         c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
         c.body, c.formatted_body = parse_formatted(m, allow_html=True)
         c.format = "org.matrix.custom.html"
@@ -624,7 +624,7 @@ class CovBot(Plugin):
                                             tabletype="html",
                                             length="long")
         m = f"{table}"
-        await self._respondpre(event, m)
+        await self._respond_formatted(event, m)
         return
 
     @command.new('table', help=HELP["table"][1])
@@ -635,7 +635,7 @@ class CovBot(Plugin):
                                             tabletype="text",
                                             length="long")
         m = f"<pre>{table}</pre>"
-        await self._respondpre(event, m)
+        await self._respond_formatted(event, m)
         return
 
     @command.new('tableshort', help=HELP["table"][1])
@@ -647,7 +647,7 @@ class CovBot(Plugin):
                                             tabletype="text",
                                             length="short")
         m = f"<pre>{table}</pre>"
-        await self._respondpre(event, m)
+        await self._respond_formatted(event, m)
         return
 
     @command.new('tabletiny', help=HELP["table"][1])
@@ -659,7 +659,7 @@ class CovBot(Plugin):
                                             tabletype="text",
                                             length="tiny")
         m = f"<pre>{table}</pre>"
-        await self._respondpre(event, m)
+        await self._respond_formatted(event, m)
         return
 
     @command.new('source', help=HELP['source'][1])
