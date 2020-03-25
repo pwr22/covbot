@@ -8,6 +8,7 @@ import os
 import csv
 import datetime
 import asyncio
+import math
 import whoosh
 import time
 import pycountry
@@ -34,6 +35,7 @@ COUNTRY_RENAMES = {
 
 # command: ( usage, description )
 HELP = {
+    'risks': ('!risks age', 'Show reported infection, ICU and death rate for given age.'),
     'cases': ('!cases location', 'Get up to date info on cases, optionally in a specific location. You can give a country code, country name, state, country, region or city.'),
     'source': ('!source', 'Find out about my data sources and developers.'),
     'help': ('!help', 'Get a reminder what I can do for you.'),
@@ -596,6 +598,24 @@ class CovBot(Plugin):
         c.body, c.formatted_body = parse_formatted(m, allow_html=True)
         c.format = "org.matrix.custom.html"
         await e.respond(c, markdown=True, allow_html=True)
+
+    @command.new('risks', help=HELP['risks'][1])
+    @command.argument("age", pass_raw=True, required=True)
+    async def risks_handler(self, event: MessageEvent, age: str) -> None:
+        # source : https://www.desmos.com/calculator/ndug79rqvp
+        age = int(age)
+        if age < 0 or age > 110:
+            await self._respond(event, "Age must be between 0 and 110")
+            return
+        death_rate = -0.0012822 + (0.00000334593 * age ** 2) + ((2.7762 * 10 ** -15) * age ** 7)
+        intensive_care_rate = (1 / math.pi) + -0.358209 / (1 + 0.0827213 * math.exp(0.035025 * age))
+        hospitalization_rate = -0.0353956 - age * -0.00576217
+        survival_rate = 1 - death_rate
+        response = '\n'.join([
+            "Reported infected patients having {} years old have average of {:.1%} survial chance.",
+            "  With average risk of hospitalization of {:.1%}, intensive care of {:.1%}, and {:.1%} death."
+        ]).format(age, survival_rate, hospitalization_rate, intensive_care_rate, death_rate)
+        await self._respond(event, response)
 
     @command.new('cases', help=HELP['cases'][1])
     @command.argument("location", pass_raw=True, required=False)
