@@ -196,6 +196,37 @@ class CovBot(Plugin):
 
         return uk_country_data
 
+    async def _get_scottish_regions(self) -> dict:
+        """Return dict of Scottish region data"""
+        async def _process_scottish_regions(regions_data: list) -> dict:
+            """Filter region data and process to covbot format
+
+            NB: this could be expanded for other regions if desired
+            """
+            # Filter to Scotland
+            scot = [r for r in regions_data if r["Country"] == "Scotland"]
+            # Get latest data
+            maxidate = max([r["Date"] for r in scot])
+            scot_data = [r for r in scot if r["Date"] == maxidate]
+            scot_region_data = {}
+            for r in scot_data:
+                scot_region_data[r["Area"]] = {
+                    "cases": int(r["TotalCases"]), "last_update":
+                    datetime.datetime.strptime(
+                        f"{maxidate} {UK_COUNTRIES['Scotland']}",
+                        "%Y-%m-%d %H%M %Z")}
+
+            return scot_region_data
+
+        async with self.http.get(UK_SCO_REGIONS_URL) as r:
+            t = await r.text()
+            lines = t.splitlines()
+
+        cr = list(csv.DictReader(lines))
+
+        scottish_region_data = await _process_scottish_regions(cr)
+
+        return scottish_region_data
 
     async def _get_case_data(self):
         countries = {}
@@ -265,7 +296,7 @@ class CovBot(Plugin):
 
         if self.next_update_at == None or now >= self.next_update_at:
             self.log.info('Updating data.')
-            data, uk_nhs_regions, uk_regions, uk_countries = await asyncio.gather(self._get_case_data(), self._get_uk_nhs_regions(), self._get_uk_regions(), self._get_uk_countries())
+            data, uk_nhs_regions, uk_regions, uk_countries, scottish_regions = await asyncio.gather(self._get_case_data(), self._get_uk_nhs_regions(), self._get_uk_regions(), self._get_uk_countries(), self._get_scottish_regions())
             self.log.info('Updated (?)')
             self.log.debug(f"uk_countries: {uk_countries}")
 
@@ -279,6 +310,9 @@ class CovBot(Plugin):
 
             for r, ukdata in uk_countries.items():
                 data['United Kingdom']['areas'][r] = ukdata
+
+            for r, scodata in scottish_regions.items():
+                data['United Kingdom']['areas'][r] = scodata
 
             self.cases = data
             await asyncio.get_running_loop().run_in_executor(None, self._update_index)
