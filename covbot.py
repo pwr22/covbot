@@ -23,7 +23,13 @@ CASE_DATA_URL = 'http://offloop.net/covid19h/unconfirmed.csv'
 GROUPS_URL = 'https://offloop.net/covid19h/groups.txt'
 UK_NHS_REGIONS_URL = 'https://www.arcgis.com/sharing/rest/content/items/ca796627a2294c51926865748c4a56e8/data'
 UK_REGIONS_URL = 'https://www.arcgis.com/sharing/rest/content/items/b684319181f94875a6879bbc833ca3a6/data'
+UK_COUNTRIES_URL = 'https://raw.githubusercontent.com/tomwhite/covid-19-uk-data/master/data/covid-19-indicators-uk.csv'
+UK_SCO_REGIONS_URL = 'https://raw.githubusercontent.com/tomwhite/covid-19-uk-data/master/data/covid-19-cases-uk.csv'
+
 RATE_LIMIT_BACKOFF_SECONDS = 10
+
+UK_COUNTRIES = {"Wales": "1200 GMT", "Scotland": "1400 GMT",
+                "England": "1800 GMT", "Northern Ireland": "1400 GMT"}
 
 COUNTRY_RENAMES = {
     'US': 'United States',
@@ -142,6 +148,55 @@ class CovBot(Plugin):
 
         return regions
 
+    async def _get_uk_countries(self) -> dict:
+        """Get UK constituent countries: WAL/SCO/ENG/NI
+
+        Data is processed by _process_uk_countries()
+        before being returned as a dict
+        """
+
+        async def _process_uk_countries(uk_countries_data: list) -> dict:
+            """Process to covbot format:
+
+                {Country1: {data1}, Country2: {data2}, ...}
+            """
+            # GB/UK data is processed elsewhere
+            countries_data = {}
+            for country, update_time in UK_COUNTRIES.items():
+                # Filter data to country (ie Wales/Scotland/England/NI)
+                country_data = [r for r in uk_countries_data
+                                if r["Country"] == country]
+                # Find latest (= maximum) date and use that
+                maxidate = max([r["Date"] for r in country_data])
+                latest_country_data = [r for r in country_data
+                                       if r["Date"] == maxidate]
+                latest_data_d = {}
+                # Pivot data to covbot format
+                for r in latest_country_data:
+                    self.log.debug(f"r:\t{r}")
+                    latest_data_d[r["Indicator"].lower()] = int(r["Value"])
+                    # Rename confirmedcases → cases
+                    if "confirmedcases" in latest_data_d:
+                        latest_data_d["cases"] = int(latest_data_d.pop(
+                            "confirmedcases"))
+                        latest_data_d["last_update"] = datetime.datetime.\
+                            strptime(f"{maxidate} {update_time}",
+                                     "%Y-%m-%d %H%M %Z")
+                        countries_data[country] = latest_data_d
+
+            return countries_data
+
+        async with self.http.get(UK_COUNTRIES_URL) as r:
+            t = await r.text()
+            lines = t.splitlines()
+
+        cr = list(csv.DictReader(lines))
+
+        uk_country_data = await _process_uk_countries(cr)
+
+        return uk_country_data
+
+
     async def _get_case_data(self):
         countries = {}
         now = time.time() * 1000  # millis to match the data
@@ -210,7 +265,9 @@ class CovBot(Plugin):
 
         if self.next_update_at == None or now >= self.next_update_at:
             self.log.info('Updating data.')
-            data, uk_nhs_regions, uk_regions = await asyncio.gather(self._get_case_data(), self._get_uk_nhs_regions(), self._get_uk_regions())
+            data, uk_nhs_regions, uk_regions, uk_countries = await asyncio.gather(self._get_case_data(), self._get_uk_nhs_regions(), self._get_uk_regions(), self._get_uk_countries())
+            self.log.info('Updated (?)')
+            self.log.debug(f"uk_countries: {uk_countries}")
 
             for r, cases in uk_nhs_regions.items():
                 data['United Kingdom']['areas'][r] = {
@@ -219,6 +276,9 @@ class CovBot(Plugin):
             for r, cases in uk_regions.items():
                 data['United Kingdom']['areas'][r] = {
                     'cases': cases, 'last_update': now}
+
+            for r, ukdata in uk_countries.items():
+                data['United Kingdom']['areas'][r] = ukdata
 
             self.cases = data
             await asyncio.get_running_loop().run_in_executor(None, self._update_index)
