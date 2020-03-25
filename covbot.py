@@ -803,7 +803,8 @@ class CovBot(Plugin):
         await self._respond(
             event,
             'I was created by Peter Roberts and MIT licensed on Github at https://github.com/pwr22/covbot.'
-            f' I fetch new data every 15 minutes from {CASE_DATA_URL}, {UK_NHS_REGIONS_URL} and {UK_REGIONS_URL}.'
+            f' I fetch new data every 15 minutes from {CASE_DATA_URL}, {UK_NHS_REGIONS_URL}, {UK_REGIONS_URL}'
+            f' {UK_COUNTRIES_URL}, and {UK_SCO_REGIONS_URL}.'
         )
 
     @command.new('help', help=HELP['help'][1])
