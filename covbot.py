@@ -1,12 +1,11 @@
 from mautrix.types import EventType
 from maubot import Plugin, MessageEvent
+from maubot.matrix import parse_formatted
 from maubot.handlers import event, command
 from mautrix.util.config import BaseProxyConfig, ConfigUpdateHelper
 
 import os
 import csv
-import requests
-import pprint
 import datetime
 import asyncio
 import whoosh
@@ -15,6 +14,7 @@ import pycountry
 from whoosh.fields import Schema, TEXT
 from whoosh.index import create_in, FileIndex
 from whoosh.qparser import QueryParser
+from tabulate import tabulate
 from mautrix.types import TextMessageEventContent, MessageType
 from mautrix.client import MembershipEventDispatcher, InternalEventType
 from mautrix.errors.request import MLimitExceeded
@@ -37,6 +37,11 @@ HELP = {
     'cases': ('!cases location', 'Get up to date info on cases, optionally in a specific location. You can give a country code, country name, state, country, region or city.'),
     'source': ('!source', 'Find out about my data sources and developers.'),
     'help': ('!help', 'Get a reminder what I can do for you.'),
+    'table': ('!table[html|short|tiny] location[s] ',
+              ('Get data in tablular format. '
+               'Separate places using semicolon (;). '
+               'Add html for HTML format, short for compact view, '
+               'tiny for case-only view'))
 }
 
 class Config(BaseProxyConfig):
@@ -321,9 +326,276 @@ class CovBot(Plugin):
 
         return []
 
+    def _short_location(self, location: str, length=int(12)) -> str:
+        """Returns a shortened location name.
+
+        If exactly matches a country code, return that. (1)
+
+        If shorter/equal than length, return intact. (2)
+
+        Logic done in that order so that if someone passes a list
+        of countries, they get the codes back, rather than a mix
+        of codes and country names.
+
+        If longer, split on commas and replace the final part with
+        a country code if that matches. (3)
+
+        If still too long, strip out 'middle' to get desired length.
+
+        TODO: - consider stripping out ", City of,"
+              - consider simple truncation
+
+        Example (length=12):
+            United States → US
+            Manchester, GB → Manch..r ,GB
+        """
+
+        # Exact country case (1)
+        try:
+            return pycountry.countries.lookup(location).alpha_2
+        except LookupError:
+            pass
+
+        # It fits already (2)
+        if len(location) <= length:
+            return location
+
+        # If there's commas, try to replace the last bit with a
+        # country code (3)
+        if "," in location:
+            loc_parts = [s.strip() for s in location.split(",")]
+            if pycountry.countries.lookup(loc_parts[-1]):
+                loc_parts[-1] = pycountry.countries.lookup(
+                    loc_parts[-1]).alpha_2
+            location = " ,".join(loc_parts)
+
+        # If what we have is still longer, cut out the middle (4)
+        if len(location) <= length:
+            return location
+        else:
+            return "..".join([
+                location[:int((length-2)/2)],
+                location[-int((length-2)/2):]
+            ])
+
+    async def _get_multiple_locations(self, event: MessageEvent, location: str) -> dict:
+        """Split locations on ';' and look up"""
+
+        results = {}
+
+        if ";" in location:
+            locs = location.split(";")
+            for loc in locs:
+                self.log.info(f"Looking up {loc}")
+                matches = await asyncio.get_running_loop().run_in_executor(
+                    None, self._get_data_for, loc)
+                if len(matches) == 0:
+                    await self._respond(event,
+                                        f"I cannot find a match for {loc}")
+                    return {}
+                elif len(matches) > 1:
+                    ms = " - ".join(m[0] for m in matches)
+                    await self._respond(event,
+                                        f"Multiple results for {loc}: {ms}. "
+                                        "Please provide one.")
+                    return {}
+                else:
+                    # {"Elbonia": {}}
+                    results[matches[0][0]] = matches[0][1]
+        else:
+            matches = await asyncio.get_running_loop().run_in_executor(
+                None, self._get_data_for, location)
+            if len(matches) == 0:
+                await self._respond(event,
+                                    f"I cannot find a match for {location}")
+                return {}
+            elif len(matches) > 1:
+                ms = " - ".join(m[0] for m in matches)
+                await self._respond(event,
+                                    f"Multiple results for {location}: {ms}. "
+                                    "Please provide one.")
+                return {}
+            else:
+                results[matches[0][0]] = matches[0][1]
+
+        return results
+
+    async def _locations_table(self, event: MessageEvent, location: str,
+                               tabletype=str("text"),
+                               length=str("long")) -> str:
+        """Build a table of locations to respond to.
+
+        Uses tabulate module to tabulate data.
+
+        Can be:
+            - tabletype: text (default) or html
+            - length: long (default), short or tiny
+
+        Missing data (eg PHE) is handled and replaced
+        by '---'; although this throws off tabulate's
+        auto-alignment of numerical data.
+
+        Tables by default report in following columns:
+            - Location
+            - Cases
+            - Sick (%)
+            - Recovered (%)
+            - Deaths (%)
+
+        Short table limits 'Location' to <= 12 chars
+        and renames 'Recovered' to "Rec'd".
+
+        Tiny table only outputs Loction and Cases columns.
+
+        Table includes a 'Total' row, even where this makes
+        no meaningful sense (eg countries + world data).
+        """
+        MISSINGDATA = "---"
+
+        # Preamble: set sane defaults
+        if location == "":
+            location = "World"
+
+        try:
+            await self._update_data()
+        except Exception as e:
+            self.log.warn('Failed to update data: %s.', e)
+            await event.respond("Something went wrong fetching "
+                                "the latest data so stats may be outdated.")
+
+        results = await self._get_multiple_locations(event, location)
+
+        if not results:
+            return
+
+        columns = ["Location", "Cases"]
+
+        if [v for v in results.values() if "recoveries" in v]:
+            # At least one of the results has recovery data
+            columns.extend(["Recovered", "%"])
+
+        if [v for v in results.values() if "deaths" in v]:
+            # At least one of the results has deaths data
+            columns.extend(["Deaths", "%"])
+
+        if "Recovered" in columns and "Deaths" in columns:
+            # L - C - S - R - D
+            columns.insert(2, "Sick")
+            columns.insert(3, "%")
+
+        tabledata = []
+        total_cases = total_sick = total_recoveries = total_deaths = 0
+        for location, data in results.items():
+            rowdata = []
+
+            # Location
+            if length == "short":
+                rowdata.extend([self._short_location(location)])
+            else:
+                rowdata.extend([location])
+
+            # Cases
+            rowdata.extend([data["cases"]])
+            total_cases += data['cases']
+
+            # TODO: decide if eliding % columns
+            if "recoveries" in data:
+                per_rec = 0 if data['cases'] == 0 else \
+                    int(data['recoveries']) / int(data['cases']) * 100
+                per_rec_f = f"{per_rec:.1f}"
+                total_recoveries += data['recoveries']
+
+                rowdata.extend([data["recoveries"], per_rec_f])
+            else:
+                rowdata.extend([MISSINGDATA, MISSINGDATA])
+
+            if "deaths" in data:
+                per_dead = 0 if data['cases'] == 0 else \
+                    int(data['deaths']) / int(data['cases']) * 100
+                per_dead_f = f"{per_dead:.1f}"
+                total_deaths += data['deaths']
+
+                rowdata.extend([data["deaths"], per_dead_f])
+            else:
+                rowdata.extend([MISSINGDATA, MISSINGDATA])
+
+            if "recoveries" in data and "deaths" in data:
+                sick = data['cases'] - int(data['recoveries']) - data['deaths']
+                per_sick = 100 - per_rec - per_dead
+                per_sick_f = f"{per_sick:.1f}"
+                total_sick += sick
+
+                rowdata.insert(2, sick)
+                rowdata.insert(3, per_sick_f)
+            else:
+                rowdata.extend([MISSINGDATA, MISSINGDATA])
+
+            # Trim data for which there are no columns
+            rowdata = rowdata[:len(columns)]
+
+            tabledata.append(rowdata)
+
+        per_total_rec = 0 if total_cases == 0 else \
+            int(total_recoveries) / int(total_cases) * 100
+        per_total_dead = 0 if total_cases == 0 else \
+            int(total_deaths) / int(total_cases) * 100
+        per_total_sick = 100 - per_total_rec - per_total_dead
+
+        per_total_rec_f = f"{per_total_rec:.1f}"
+        per_total_dead_f = f"{per_total_dead:.1f}"
+        per_total_sick_f = f"{per_total_sick:.1f}"
+
+        # Total row (table foot)
+        tablefoot = ["Total", total_cases]
+
+        if "Sick" in columns:
+            tablefoot.extend([total_sick, per_total_sick_f])
+        if "Recovered" in columns:
+            tablefoot.extend([total_recoveries, per_total_rec_f])
+        if "Deaths" in columns:
+            tablefoot.extend([total_deaths, per_total_dead_f])
+
+        tabledata.append(tablefoot)
+
+        # Shorten columns if needed
+        if length == "short":
+            columns = [w.replace("Recovered", "Rec'd") for w in columns]
+        # Minimal- cases only:
+        if length == "tiny":
+            columns = columns[:2]
+            tabledata = [row[:2] for row in tabledata]
+
+        # Build table
+        if tabletype == "html":
+            tablefmt = "html"
+        else:
+            tablefmt = "presto"
+
+        table = tabulate(tabledata, headers=columns,
+                         tablefmt=tablefmt, floatfmt=".1f")
+
+        if results:
+            return table
+
     async def _respond(self, e: MessageEvent, m: str) -> None:
         c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
         await self._handle_rate_limit(lambda: e.respond(c))
+
+    @staticmethod
+    async def _respond_formatted(e: MessageEvent, m: str) -> None:
+        """Respond with formatted message in m.text matrix format,
+        not m.notice.
+
+        This is needed as mobile clients (Riot 0.9.10, RiotX) currently
+        do not seem to render markdown / HTML in m.notice events
+        which are conventionally send by bots.
+
+        Desktop/web Riot.im does render MD/HTML in m.notice, however.
+        """
+        c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
+        c.body, c.formatted_body = parse_formatted(m, allow_html=True)
+        c.format = "org.matrix.custom.html"
+        await e.respond(c, markdown=True, allow_html=True)
 
     @command.new('cases', help=HELP['cases'][1])
     @command.argument("location", pass_raw=True, required=False)
@@ -379,6 +651,57 @@ class CovBot(Plugin):
             event,
             s
         )
+
+    @command.new('tablehtml', help=HELP["table"][1])
+    @command.argument("location", pass_raw=True, required=False)
+    async def tablehtml_handler(self, event: MessageEvent,
+                                location: str) -> None:
+        self.log.info("Handling HTML table request")
+        table = await self._locations_table(event, location=location,
+                                            tabletype="html",
+                                            length="long")
+        if table:
+            m = f"{table}"
+            await self._respond_formatted(event, m)
+        return
+
+    @command.new('table', help=HELP["table"][1])
+    @command.argument("location", pass_raw=True, required=False)
+    async def table_handler(self, event: MessageEvent, location: str) -> None:
+        self.log.info("Handling table request")
+        table = await self._locations_table(event, location=location,
+                                            tabletype="text",
+                                            length="long")
+        if table:
+            m = f"<pre>{table}</pre>"
+            await self._respond_formatted(event, m)
+        return
+
+    @command.new('tableshort', help=HELP["table"][1])
+    @command.argument("location", pass_raw=True, required=False)
+    async def tablesmall_handler(self, event: MessageEvent,
+                                 location: str) -> None:
+        self.log.info("Handling short table request")
+        table = await self._locations_table(event, location=location,
+                                            tabletype="text",
+                                            length="short")
+        if table:
+            m = f"<pre>{table}</pre>"
+            await self._respond_formatted(event, m)
+        return
+
+    @command.new('tabletiny', help=HELP["table"][1])
+    @command.argument("location", pass_raw=True, required=False)
+    async def tabletiny_handler(self, event: MessageEvent,
+                                location: str) -> None:
+        self.log.info("Handling tiny table request")
+        table = await self._locations_table(event, location=location,
+                                            tabletype="text",
+                                            length="tiny")
+        if table:
+            m = f"<pre>{table}</pre>"
+            await self._respond_formatted(event, m)
+        return
 
     @command.new('source', help=HELP['source'][1])
     async def source_handler(self, event: MessageEvent) -> None:
