@@ -602,14 +602,14 @@ class CovBot(Plugin):
     @command.new('risks', help=HELP['risks'][1])
     @command.argument("age", pass_raw=True, required=True)
     async def risks_handler(self, event: MessageEvent, age: str) -> None:
-        # source : https://www.desmos.com/calculator/ndug79rqvp
+        # source : https://www.desmos.com/calculator/v0zif7tflm
         age = int(age)
         if age < 0 or age > 110:
             await self._respond(event, "Age must be between 0 and 110")
             return
-        death_rate = -0.0012822 + (0.00000334593 * age ** 2) + ((2.7762 * 10 ** -15) * age ** 7)
-        intensive_care_rate = (1 / math.pi) + -0.358209 / (1 + 0.0827213 * math.exp(0.035025 * age))
-        hospitalization_rate = -0.0353956 - age * -0.00576217
+        death_rate = max(0, -0.00186807 + 0.00000351867 * age ** 2 + (2.7595 * 10 ** -15) * age ** 7)
+        intensive_care_rate = max(0, -0.0572602 - -0.0027617 * age)
+        hospitalization_rate = max(0, -0.0730827 - age * -0.00628289)
         survival_rate = 1 - death_rate
         response = '\n'.join([
             "Reported infected patients having {} years old have average of {:.1%} survial chance.",
