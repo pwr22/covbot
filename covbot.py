@@ -43,6 +43,7 @@ HELP = {
     'compare': (
         '!compare locations',
         'Compare up to date info on cases in multiple locations.'
+        'If it looks bad on mobile try rotating into landscape mode. '
         ' Separate the locations with semicolons (;).'
         ' You can give a country codes, countries, states, counties, regions or cities.'
         ' E.g. !compare cn;us;uk;it;de'
@@ -663,7 +664,7 @@ class CovBot(Plugin):
         self.log.info('Responding to help request.')
 
         s = 'You can message me any of these commands:\n\n'
-        s += '\n'.join(f'{usage} - {desc}' for (usage, desc) in HELP.values())
+        s += '\n\n'.join(f'{usage} - {desc}' for (usage, desc) in HELP.values())
         await self._message(event.room_id, s)
 
     async def _message(self, room_id, m: str) -> None:
