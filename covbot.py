@@ -34,19 +34,22 @@ COUNTRY_RENAMES = {
 
 # command: ( usage, description )
 HELP = {
-    'cases': ('!cases location', 'Get up to date info on cases, optionally in a specific location. You can give a country code, country name, state, country, region or city.'),
+    'cases': ('!cases location', 'Get up to date info on cases, optionally in a specific location. You can give a country code, country, state, county, region or city.'),
     'source': ('!source', 'Find out about my data sources and developers.'),
     'help': ('!help', 'Get a reminder what I can do for you.'),
-    'table': ('!table[html|short|tiny] location[s] ',
-              ('Get data in tablular format. '
-               'Separate places using semicolon (;). '
-               'Add html for HTML format, short for compact view, '
-               'tiny for case-only view'))
+    'compare': (
+        '!compare locations',
+        'Compare up to date info on case in multiple locations.'
+        ' Separate the locations with semicolons (;).'
+        ' You can give a country codes, countries, states, counties, regions or cities.'
+    )
 }
+
 
 class Config(BaseProxyConfig):
     def do_update(self, helper: ConfigUpdateHelper) -> None:
         helper.copy("admins")
+
 
 class CovBot(Plugin):
     groups = {}
@@ -62,8 +65,12 @@ class CovBot(Plugin):
             try:
                 return await api_call_wrapper()
             except MLimitExceeded:
-                self.log.warning('API rate limit exceepted so backing off for %s seconds.', RATE_LIMIT_BACKOFF_SECONDS)
+                self.log.warning(
+                    'API rate limit exceepted so backing off for %s seconds.', RATE_LIMIT_BACKOFF_SECONDS)
                 await asyncio.sleep(RATE_LIMIT_BACKOFF_SECONDS)
+            except Exception as e:  # ignore other errors but give up
+                self.log.warning('%s', e)
+                return
 
     async def _prune_dead_rooms(self):
         while True:
@@ -82,7 +89,7 @@ class CovBot(Plugin):
                         users.add(m)
 
             self.log.info('I talk to %s unique users.', len(users))
-            await asyncio.sleep(60 * 60 * 24) # once per day
+            await asyncio.sleep(60 * 60 * 24)  # once per day
 
     @classmethod
     def get_config_class(cls) -> BaseProxyConfig:
@@ -592,9 +599,9 @@ class CovBot(Plugin):
 
         Desktop/web Riot.im does render MD/HTML in m.notice, however.
         """
-        c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
+        c = TextMessageEventContent(
+            msgtype=MessageType.TEXT, formatted_body=m, format="org.matrix.custom.html")
         c.body, c.formatted_body = parse_formatted(m, allow_html=True)
-        c.format = "org.matrix.custom.html"
         await e.respond(c, markdown=True, allow_html=True)
 
     @command.new('cases', help=HELP['cases'][1])
@@ -652,56 +659,15 @@ class CovBot(Plugin):
             s
         )
 
-    @command.new('tablehtml', help=HELP["table"][1])
-    @command.argument("location", pass_raw=True, required=False)
-    async def tablehtml_handler(self, event: MessageEvent,
-                                location: str) -> None:
-        self.log.info("Handling HTML table request")
-        table = await self._locations_table(event, location=location,
-                                            tabletype="html",
-                                            length="long")
-        if table:
-            m = f"{table}"
-            await self._respond_formatted(event, m)
-        return
-
-    @command.new('table', help=HELP["table"][1])
-    @command.argument("location", pass_raw=True, required=False)
-    async def table_handler(self, event: MessageEvent, location: str) -> None:
+    @command.new('compare', help=HELP["compare"][1])
+    @command.argument("locations", pass_raw=True, required=True)
+    async def table_handler(self, event: MessageEvent, locations: str) -> None:
         self.log.info("Handling table request")
-        table = await self._locations_table(event, location=location,
-                                            tabletype="text",
-                                            length="long")
-        if table:
-            m = f"<pre>{table}</pre>"
-            await self._respond_formatted(event, m)
-        return
-
-    @command.new('tableshort', help=HELP["table"][1])
-    @command.argument("location", pass_raw=True, required=False)
-    async def tablesmall_handler(self, event: MessageEvent,
-                                 location: str) -> None:
-        self.log.info("Handling short table request")
-        table = await self._locations_table(event, location=location,
-                                            tabletype="text",
-                                            length="short")
-        if table:
-            m = f"<pre>{table}</pre>"
-            await self._respond_formatted(event, m)
-        return
-
-    @command.new('tabletiny', help=HELP["table"][1])
-    @command.argument("location", pass_raw=True, required=False)
-    async def tabletiny_handler(self, event: MessageEvent,
-                                location: str) -> None:
-        self.log.info("Handling tiny table request")
-        table = await self._locations_table(event, location=location,
-                                            tabletype="text",
-                                            length="tiny")
-        if table:
-            m = f"<pre>{table}</pre>"
-            await self._respond_formatted(event, m)
-        return
+        t = await self._locations_table(event, location=locations,
+                                        tabletype="text",
+                                        length="long")
+        if t:
+            await self._respond_formatted(event, f'<pre>{t}</pre>')
 
     @command.new('source', help=HELP['source'][1])
     async def source_handler(self, event: MessageEvent) -> None:
@@ -727,7 +693,7 @@ class CovBot(Plugin):
     @command.new('announce', help='Send broadcast a message to all rooms.')
     @command.argument("message", pass_raw=True, required=True)
     async def accounce(self, event: MessageEvent, message: str) -> None:
-        
+
         if event.sender not in self.config['admins']:
             self.log.warn(
                 'User %s tried to send an announcement but only admins are authorised to do so.'
