@@ -49,7 +49,7 @@ HELP = {
         ' You can give a country codes, countries, states, counties, regions or cities.'
         ' E.g. !compare cn;us;uk;it;de'
     ),
-    'risks': ('!risks age', 'Show reported infection, ICU and death rate for given age.'),
+    'risk': ('!risk age', 'For a person of the given age, what is is the risk to them if they become sick with COVID-19?'),
     'source': ('!source', 'Find out about my data sources and developers.'),
     'help': ('!help', 'Get a reminder what I can do for you.'),
 }
@@ -587,33 +587,35 @@ class CovBot(Plugin):
         c.body, c.formatted_body = parse_formatted(m, allow_html=True)
         await e.respond(c, markdown=True, allow_html=True)
 
-    @command.new('risks', help=HELP['risks'][1])
+    @command.new('risk', help=HELP['risk'][1])
     @command.argument("age", pass_raw=True, required=True)
     async def risks_handler(self, event: MessageEvent, age: str) -> None:
         # source : https://www.desmos.com/calculator/v0zif7tflm
         age = int(age)
         if age < 0 or age > 110:
-            await self._respond(event, "Age must be between 0 and 110")
+            await self._respond(event, "The risk model only handles ages between 0 and 110")
             return
-        death_rate = max(0, -0.00186807 + 0.00000351867 * age ** 2 + (2.7595 * 10 ** -15) * age ** 7)
-        intensive_care_rate = max(0, -0.0572602 - -0.0027617 * age)
-        hospitalization_rate = max(0, -0.0730827 - age * -0.00628289)
-        survival_rate = 1 - death_rate
-        response = (
-            "Based on reports, infection with SARS-CoV-2 in a {} year old has an average {:.1%} survival chance;"
-            " with an average risk of hospitalization of {:.1%}, risk of needing intensive care of {:.1%},"
-            " and {:.1%} chance of death."
-        ).format(age, survival_rate, hospitalization_rate, intensive_care_rate, death_rate)
-            "Reported infected patients having {} years old have average of {:.1%} survial chance.",
-            "  With average risk of hospitalization of {:.1%}, intensive care of {:.1%}, and {:.1%} death."
-        ]).format(age, survival_rate, hospitalization_rate, intensive_care_rate, death_rate)
-        await self._respond(event, response)
 
-    @command.new('cases', help=HELP['cases'][1])
-    @command.argument("location", pass_raw=True, required=False)
+        # Maths that Peter doesn't really understand!
+        death_rate = max(0, -0.00186807 + 0.00000351867 *
+                         age ** 2 + (2.7595 * 10 ** -15) * age ** 7)
+        ic_rate = max(0, -0.0572602 - -0.0027617 * age)
+        h_rate = max(0, -0.0730827 - age * -0.00628289)
+        survival_rate = 1 - death_rate
+
+        s = (
+            f"I estimate a {age} year old patient sick with COVID-19 has a {survival_rate:.1%} chance of survival,"
+            f" a {h_rate:.1%} liklihood of needing to go to hospital, a {ic_rate:.1%} risk of needing intensive care there"
+            f" and a {death_rate:.1%} chance of death."
+        )
+
+        await self._respond(event, s)
+
+    @command.new('cases', help = HELP['cases'][1])
+    @command.argument("location", pass_raw = True, required = False)
     async def cases_handler(self, event: MessageEvent, location: str) -> None:
         if location == "":
-            location = "World"
+            location="World"
 
         self.log.info('Responding to cases request for %s.', location)
 
@@ -623,7 +625,7 @@ class CovBot(Plugin):
             self.log.warn('Failed to update data: %s.', e)
             await self._respond(event, 'Something went wrong fetching the latest data so stats may be outdated.')
 
-        matches = await asyncio.get_running_loop().run_in_executor(None, self._get_data_for, location)
+        matches=await asyncio.get_running_loop().run_in_executor(None, self._get_data_for, location)
         # matches = self._get_data_for(location)
 
         if len(matches) == 0:
@@ -636,22 +638,22 @@ class CovBot(Plugin):
             )
             return
         elif len(matches) > 1:
-            ms = "\n".join(m[0] for m in matches)
+            ms="\n".join(m[0] for m in matches)
             await self._respond(event, f"Which of these did you mean?\n\n{ms}")
             return
 
-        m_loc, data = matches[0]
-        cases, last_update = data['cases'], data['last_update']
-        s = f'In {m_loc} there have been a total of {cases:,} cases as of {last_update} UTC.'
+        m_loc, data=matches[0]
+        cases, last_update=data['cases'], data['last_update']
+        s=f'In {m_loc} there have been a total of {cases:,} cases as of {last_update} UTC.'
 
         # some data is more detailed
         if 'recoveries' in data and 'deaths' in data:
-            recoveries, deaths = data['recoveries'], data['deaths']
-            sick = cases - recoveries - deaths
+            recoveries, deaths=data['recoveries'], data['deaths']
+            sick=cases - recoveries - deaths
 
-            per_rec = 0 if cases == 0 else int(recoveries) / int(cases) * 100
-            per_dead = 0 if cases == 0 else int(deaths) / int(cases) * 100
-            per_sick = 100 - per_rec - per_dead
+            per_rec=0 if cases == 0 else int(recoveries) / int(cases) * 100
+            per_dead=0 if cases == 0 else int(deaths) / int(cases) * 100
+            per_sick=100 - per_rec - per_dead
 
             s += (
                 f' Of these {sick:,} ({per_sick:.1f}%) are still sick or may have recovered without being recorded,'
@@ -664,39 +666,41 @@ class CovBot(Plugin):
             s
         )
 
-    @command.new('compare', help=HELP["compare"][1])
-    @command.argument("locations", pass_raw=True, required=True)
+    @command.new('compare', help = HELP["compare"][1])
+    @command.argument("locations", pass_raw = True, required = True)
     async def table_handler(self, event: MessageEvent, locations: str) -> None:
         self.log.info("Handling table request")
-        t = await self._locations_table(event, location=locations,
-                                        tabletype="text",
-                                        length="long")
+        t=await self._locations_table(event, location = locations,
+                                        tabletype= "text",
+                                        length = "long")
         if t:
             await self._respond_formatted(event, f'<pre>{t}</pre>')
 
-    @command.new('source', help=HELP['source'][1])
+    @command.new('source', help = HELP['source'][1])
     async def source_handler(self, event: MessageEvent) -> None:
         self.log.info('Responding to source request.')
         await self._respond(
             event,
             'I was created by Peter Roberts and MIT licensed on Github at https://github.com/pwr22/covbot.'
             f' I fetch new data every 15 minutes from {CASE_DATA_URL}, {UK_NHS_REGIONS_URL} and {UK_REGIONS_URL}.'
+            f' Risk estimates are based on the model at https://www.desmos.com/calculator/v0zif7tflm.'
         )
 
-    @command.new('help', help=HELP['help'][1])
+    @command.new('help', help = HELP['help'][1])
     async def help_handler(self, event: MessageEvent) -> None:
         self.log.info('Responding to help request.')
 
-        s = 'You can message me any of these commands:\n\n'
-        s += '\n\n'.join(f'{usage} - {desc}' for (usage, desc) in HELP.values())
+        s='You can message me any of these commands:\n\n'
+        s += '\n\n'.join(f'{usage} - {desc}' for (usage,
+                         desc) in HELP.values())
         await self._message(event.room_id, s)
 
     async def _message(self, room_id, m: str) -> None:
-        c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
+        c=TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
         await self._handle_rate_limit(lambda: self.client.send_message(room_id=room_id, content=c))
 
-    @command.new('announce', help='Send broadcast a message to all rooms.')
-    @command.argument("message", pass_raw=True, required=True)
+    @command.new('announce', help= 'Send broadcast a message to all rooms.')
+    @command.argument("message", pass_raw= True, required = True)
     async def accounce(self, event: MessageEvent, message: str) -> None:
 
         if event.sender not in self.config['admins']:
@@ -708,7 +712,7 @@ class CovBot(Plugin):
             await self._respond(event, 'You do not have permission to !announce.')
             return None
 
-        rooms = await self._handle_rate_limit(lambda: self.client.get_joined_rooms())
+        rooms=await self._handle_rate_limit(lambda: self.client.get_joined_rooms())
         self.log.info('Sending announcement %s to all %s rooms',
                       message, len(rooms))
 
@@ -729,10 +733,10 @@ class CovBot(Plugin):
             return
 
         # work around duplicate joins
-        self._rooms_joined[event.room_id] = True
+        self._rooms_joined[event.room_id]=True
         self.log.info(
             'Sending unsolicited help on join to room %s', event.room_id)
 
-        s = 'Hi, I am a bot that tracks SARS-COV-2 infection statistics for you. You can message me any of these commands:\n\n'
+        s='Hi, I am a bot that tracks SARS-COV-2 infection statistics for you. You can message me any of these commands:\n\n'
         s += '\n'.join(f'{usage} - {desc}' for (usage, desc) in HELP.values())
         await self._message(event.room_id, s)
