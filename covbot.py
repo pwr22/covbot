@@ -491,7 +491,6 @@ class CovBot(Plugin):
             columns.insert(3, "%")
 
         tabledata = []
-        total_cases = total_sick = total_recoveries = total_deaths = 0
         for location, data in results.items():
             rowdata = []
 
@@ -503,14 +502,12 @@ class CovBot(Plugin):
 
             # Cases
             rowdata.extend([data["cases"]])
-            total_cases += data['cases']
 
             # TODO: decide if eliding % columns
             if "recoveries" in data:
                 per_rec = 0 if data['cases'] == 0 else \
                     int(data['recoveries']) / int(data['cases']) * 100
                 per_rec_f = f"{per_rec:.1f}"
-                total_recoveries += data['recoveries']
 
                 rowdata.extend([data["recoveries"], per_rec_f])
             else:
@@ -520,7 +517,6 @@ class CovBot(Plugin):
                 per_dead = 0 if data['cases'] == 0 else \
                     int(data['deaths']) / int(data['cases']) * 100
                 per_dead_f = f"{per_dead:.1f}"
-                total_deaths += data['deaths']
 
                 rowdata.extend([data["deaths"], per_dead_f])
             else:
@@ -530,7 +526,6 @@ class CovBot(Plugin):
                 sick = data['cases'] - int(data['recoveries']) - data['deaths']
                 per_sick = 100 - per_rec - per_dead
                 per_sick_f = f"{per_sick:.1f}"
-                total_sick += sick
 
                 rowdata.insert(2, sick)
                 rowdata.insert(3, per_sick_f)
@@ -541,28 +536,6 @@ class CovBot(Plugin):
             rowdata = rowdata[:len(columns)]
 
             tabledata.append(rowdata)
-
-        per_total_rec = 0 if total_cases == 0 else \
-            int(total_recoveries) / int(total_cases) * 100
-        per_total_dead = 0 if total_cases == 0 else \
-            int(total_deaths) / int(total_cases) * 100
-        per_total_sick = 100 - per_total_rec - per_total_dead
-
-        per_total_rec_f = f"{per_total_rec:.1f}"
-        per_total_dead_f = f"{per_total_dead:.1f}"
-        per_total_sick_f = f"{per_total_sick:.1f}"
-
-        # Total row (table foot)
-        tablefoot = ["Total", total_cases]
-
-        if "Sick" in columns:
-            tablefoot.extend([total_sick, per_total_sick_f])
-        if "Recovered" in columns:
-            tablefoot.extend([total_recoveries, per_total_rec_f])
-        if "Deaths" in columns:
-            tablefoot.extend([total_deaths, per_total_dead_f])
-
-        tabledata.append(tablefoot)
 
         # Shorten columns if needed
         if length == "short":
