@@ -35,20 +35,30 @@ COUNTRY_RENAMES = {
 
 # command: ( usage, description )
 HELP = {
+    'cases': (
+        '!cases location',
+        'Get up to date info on cases, optionally in a specific location.'
+        ' You can give a country code, country, state, county, region or city.'
+        ' E.g. !cases china'
+    ),
+    'compare': (
+        '!compare locations',
+        'Compare up to date info on cases in multiple locations.'
+        'If it looks bad on mobile try rotating into landscape mode. '
+        ' Separate the locations with semicolons (;).'
+        ' You can give a country codes, countries, states, counties, regions or cities.'
+        ' E.g. !compare cn;us;uk;it;de'
+    ),
     'risks': ('!risks age', 'Show reported infection, ICU and death rate for given age.'),
-    'cases': ('!cases location', 'Get up to date info on cases, optionally in a specific location. You can give a country code, country name, state, country, region or city.'),
     'source': ('!source', 'Find out about my data sources and developers.'),
     'help': ('!help', 'Get a reminder what I can do for you.'),
-    'table': ('!table[html|short|tiny] location[s] ',
-              ('Get data in tablular format. '
-               'Separate places using semicolon (;). '
-               'Add html for HTML format, short for compact view, '
-               'tiny for case-only view'))
 }
+
 
 class Config(BaseProxyConfig):
     def do_update(self, helper: ConfigUpdateHelper) -> None:
         helper.copy("admins")
+
 
 class CovBot(Plugin):
     groups = {}
@@ -64,8 +74,12 @@ class CovBot(Plugin):
             try:
                 return await api_call_wrapper()
             except MLimitExceeded:
-                self.log.warning('API rate limit exceepted so backing off for %s seconds.', RATE_LIMIT_BACKOFF_SECONDS)
+                self.log.warning(
+                    'API rate limit exceepted so backing off for %s seconds.', RATE_LIMIT_BACKOFF_SECONDS)
                 await asyncio.sleep(RATE_LIMIT_BACKOFF_SECONDS)
+            except Exception as e:  # ignore other errors but give up
+                self.log.warning('%s', e)
+                return
 
     async def _prune_dead_rooms(self):
         while True:
@@ -84,7 +98,7 @@ class CovBot(Plugin):
                         users.add(m)
 
             self.log.info('I talk to %s unique users.', len(users))
-            await asyncio.sleep(60 * 60 * 24) # once per day
+            await asyncio.sleep(60 * 60 * 24)  # once per day
 
     @classmethod
     def get_config_class(cls) -> BaseProxyConfig:
@@ -485,10 +499,11 @@ class CovBot(Plugin):
             columns.insert(2, "Sick")
             columns.insert(3, "%")
 
+        # TODO: sort by cases descending
         tabledata = []
-        total_cases = total_sick = total_recoveries = total_deaths = 0
         for location, data in results.items():
             rowdata = []
+            cases = data['cases']
 
             # Location
             if length == "short":
@@ -497,38 +512,33 @@ class CovBot(Plugin):
                 rowdata.extend([location])
 
             # Cases
-            rowdata.extend([data["cases"]])
-            total_cases += data['cases']
+            rowdata.extend([f'{cases:,}'])
 
             # TODO: decide if eliding % columns
             if "recoveries" in data:
-                per_rec = 0 if data['cases'] == 0 else \
-                    int(data['recoveries']) / int(data['cases']) * 100
-                per_rec_f = f"{per_rec:.1f}"
-                total_recoveries += data['recoveries']
+                recs = data['recoveries']
+                per_rec = 0 if cases == 0 else \
+                    int(recs) / int(cases) * 100
 
-                rowdata.extend([data["recoveries"], per_rec_f])
+                rowdata.extend([f'{recs:,}', f"{per_rec:.1f}"])
             else:
                 rowdata.extend([MISSINGDATA, MISSINGDATA])
 
             if "deaths" in data:
-                per_dead = 0 if data['cases'] == 0 else \
-                    int(data['deaths']) / int(data['cases']) * 100
-                per_dead_f = f"{per_dead:.1f}"
-                total_deaths += data['deaths']
+                deaths = data['deaths']
+                per_dead = 0 if cases == 0 else \
+                    int(deaths) / int(cases) * 100
 
-                rowdata.extend([data["deaths"], per_dead_f])
+                rowdata.extend([f'{deaths:,}', f"{per_dead:.1f}"])
             else:
                 rowdata.extend([MISSINGDATA, MISSINGDATA])
 
             if "recoveries" in data and "deaths" in data:
-                sick = data['cases'] - int(data['recoveries']) - data['deaths']
+                sick = cases - int(data['recoveries']) - data['deaths']
                 per_sick = 100 - per_rec - per_dead
-                per_sick_f = f"{per_sick:.1f}"
-                total_sick += sick
 
-                rowdata.insert(2, sick)
-                rowdata.insert(3, per_sick_f)
+                rowdata.insert(2, f'{sick:,}')
+                rowdata.insert(3, f"{per_sick:.1f}")
             else:
                 rowdata.extend([MISSINGDATA, MISSINGDATA])
 
@@ -536,28 +546,6 @@ class CovBot(Plugin):
             rowdata = rowdata[:len(columns)]
 
             tabledata.append(rowdata)
-
-        per_total_rec = 0 if total_cases == 0 else \
-            int(total_recoveries) / int(total_cases) * 100
-        per_total_dead = 0 if total_cases == 0 else \
-            int(total_deaths) / int(total_cases) * 100
-        per_total_sick = 100 - per_total_rec - per_total_dead
-
-        per_total_rec_f = f"{per_total_rec:.1f}"
-        per_total_dead_f = f"{per_total_dead:.1f}"
-        per_total_sick_f = f"{per_total_sick:.1f}"
-
-        # Total row (table foot)
-        tablefoot = ["Total", total_cases]
-
-        if "Sick" in columns:
-            tablefoot.extend([total_sick, per_total_sick_f])
-        if "Recovered" in columns:
-            tablefoot.extend([total_recoveries, per_total_rec_f])
-        if "Deaths" in columns:
-            tablefoot.extend([total_deaths, per_total_dead_f])
-
-        tabledata.append(tablefoot)
 
         # Shorten columns if needed
         if length == "short":
@@ -594,9 +582,9 @@ class CovBot(Plugin):
 
         Desktop/web Riot.im does render MD/HTML in m.notice, however.
         """
-        c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
+        c = TextMessageEventContent(
+            msgtype=MessageType.TEXT, formatted_body=m, format="org.matrix.custom.html")
         c.body, c.formatted_body = parse_formatted(m, allow_html=True)
-        c.format = "org.matrix.custom.html"
         await e.respond(c, markdown=True, allow_html=True)
 
     @command.new('risks', help=HELP['risks'][1])
@@ -676,56 +664,15 @@ class CovBot(Plugin):
             s
         )
 
-    @command.new('tablehtml', help=HELP["table"][1])
-    @command.argument("location", pass_raw=True, required=False)
-    async def tablehtml_handler(self, event: MessageEvent,
-                                location: str) -> None:
-        self.log.info("Handling HTML table request")
-        table = await self._locations_table(event, location=location,
-                                            tabletype="html",
-                                            length="long")
-        if table:
-            m = f"{table}"
-            await self._respond_formatted(event, m)
-        return
-
-    @command.new('table', help=HELP["table"][1])
-    @command.argument("location", pass_raw=True, required=False)
-    async def table_handler(self, event: MessageEvent, location: str) -> None:
+    @command.new('compare', help=HELP["compare"][1])
+    @command.argument("locations", pass_raw=True, required=True)
+    async def table_handler(self, event: MessageEvent, locations: str) -> None:
         self.log.info("Handling table request")
-        table = await self._locations_table(event, location=location,
-                                            tabletype="text",
-                                            length="long")
-        if table:
-            m = f"<pre>{table}</pre>"
-            await self._respond_formatted(event, m)
-        return
-
-    @command.new('tableshort', help=HELP["table"][1])
-    @command.argument("location", pass_raw=True, required=False)
-    async def tablesmall_handler(self, event: MessageEvent,
-                                 location: str) -> None:
-        self.log.info("Handling short table request")
-        table = await self._locations_table(event, location=location,
-                                            tabletype="text",
-                                            length="short")
-        if table:
-            m = f"<pre>{table}</pre>"
-            await self._respond_formatted(event, m)
-        return
-
-    @command.new('tabletiny', help=HELP["table"][1])
-    @command.argument("location", pass_raw=True, required=False)
-    async def tabletiny_handler(self, event: MessageEvent,
-                                location: str) -> None:
-        self.log.info("Handling tiny table request")
-        table = await self._locations_table(event, location=location,
-                                            tabletype="text",
-                                            length="tiny")
-        if table:
-            m = f"<pre>{table}</pre>"
-            await self._respond_formatted(event, m)
-        return
+        t = await self._locations_table(event, location=locations,
+                                        tabletype="text",
+                                        length="long")
+        if t:
+            await self._respond_formatted(event, f'<pre>{t}</pre>')
 
     @command.new('source', help=HELP['source'][1])
     async def source_handler(self, event: MessageEvent) -> None:
@@ -741,7 +688,7 @@ class CovBot(Plugin):
         self.log.info('Responding to help request.')
 
         s = 'You can message me any of these commands:\n\n'
-        s += '\n'.join(f'{usage} - {desc}' for (usage, desc) in HELP.values())
+        s += '\n\n'.join(f'{usage} - {desc}' for (usage, desc) in HELP.values())
         await self._message(event.room_id, s)
 
     async def _message(self, room_id, m: str) -> None:
@@ -751,7 +698,7 @@ class CovBot(Plugin):
     @command.new('announce', help='Send broadcast a message to all rooms.')
     @command.argument("message", pass_raw=True, required=True)
     async def accounce(self, event: MessageEvent, message: str) -> None:
-        
+
         if event.sender not in self.config['admins']:
             self.log.warn(
                 'User %s tried to send an announcement but only admins are authorised to do so.'
