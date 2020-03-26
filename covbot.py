@@ -490,9 +490,11 @@ class CovBot(Plugin):
             columns.insert(2, "Sick")
             columns.insert(3, "%")
 
+        # TODO: sort by cases descending
         tabledata = []
         for location, data in results.items():
             rowdata = []
+            cases = data['cases']
 
             # Location
             if length == "short":
@@ -501,34 +503,33 @@ class CovBot(Plugin):
                 rowdata.extend([location])
 
             # Cases
-            rowdata.extend([data["cases"]])
+            rowdata.extend([f'{cases:,}'])
 
             # TODO: decide if eliding % columns
             if "recoveries" in data:
-                per_rec = 0 if data['cases'] == 0 else \
-                    int(data['recoveries']) / int(data['cases']) * 100
-                per_rec_f = f"{per_rec:.1f}"
+                recs = data['recoveries']
+                per_rec = 0 if cases == 0 else \
+                    int(recs) / int(cases) * 100
 
-                rowdata.extend([data["recoveries"], per_rec_f])
+                rowdata.extend([f'{recs:,}', f"{per_rec:.1f}"])
             else:
                 rowdata.extend([MISSINGDATA, MISSINGDATA])
 
             if "deaths" in data:
-                per_dead = 0 if data['cases'] == 0 else \
-                    int(data['deaths']) / int(data['cases']) * 100
-                per_dead_f = f"{per_dead:.1f}"
+                deaths = data['deaths']
+                per_dead = 0 if cases == 0 else \
+                    int(deaths) / int(cases) * 100
 
-                rowdata.extend([data["deaths"], per_dead_f])
+                rowdata.extend([f'{deaths:,}', f"{per_dead:.1f}"])
             else:
                 rowdata.extend([MISSINGDATA, MISSINGDATA])
 
             if "recoveries" in data and "deaths" in data:
-                sick = data['cases'] - int(data['recoveries']) - data['deaths']
+                sick = cases - int(data['recoveries']) - data['deaths']
                 per_sick = 100 - per_rec - per_dead
-                per_sick_f = f"{per_sick:.1f}"
 
-                rowdata.insert(2, sick)
-                rowdata.insert(3, per_sick_f)
+                rowdata.insert(2, f'{sick:,}')
+                rowdata.insert(3, f"{per_sick:.1f}")
             else:
                 rowdata.extend([MISSINGDATA, MISSINGDATA])
 
