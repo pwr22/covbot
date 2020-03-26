@@ -611,7 +611,11 @@ class CovBot(Plugin):
         intensive_care_rate = max(0, -0.0572602 - -0.0027617 * age)
         hospitalization_rate = max(0, -0.0730827 - age * -0.00628289)
         survival_rate = 1 - death_rate
-        response = '\n'.join([
+        response = (
+            "Based on reports, infection with SARS-CoV-2 in a {} year old has an average {:.1%} survival chance;"
+            " with an average risk of hospitalization of {:.1%}, risk of needing intensive care of {:.1%},"
+            " and {:.1%} chance of death."
+        ).format(age, survival_rate, hospitalization_rate, intensive_care_rate, death_rate)
             "Reported infected patients having {} years old have average of {:.1%} survial chance.",
             "  With average risk of hospitalization of {:.1%}, intensive care of {:.1%}, and {:.1%} death."
         ]).format(age, survival_rate, hospitalization_rate, intensive_care_rate, death_rate)
