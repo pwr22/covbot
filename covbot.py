@@ -34,15 +34,21 @@ COUNTRY_RENAMES = {
 
 # command: ( usage, description )
 HELP = {
-    'cases': ('!cases location', 'Get up to date info on cases, optionally in a specific location. You can give a country code, country, state, county, region or city.'),
-    'source': ('!source', 'Find out about my data sources and developers.'),
-    'help': ('!help', 'Get a reminder what I can do for you.'),
+    'cases': (
+        '!cases location',
+        'Get up to date info on cases, optionally in a specific location.'
+        ' You can give a country code, country, state, county, region or city.'
+        ' E.g. !cases china'
+    ),
     'compare': (
         '!compare locations',
-        'Compare up to date info on case in multiple locations.'
+        'Compare up to date info on cases in multiple locations.'
         ' Separate the locations with semicolons (;).'
         ' You can give a country codes, countries, states, counties, regions or cities.'
-    )
+        ' E.g. !compare cn;us;uk;it;de'
+    ),
+    'source': ('!source', 'Find out about my data sources and developers.'),
+    'help': ('!help', 'Get a reminder what I can do for you.'),
 }
 
 
