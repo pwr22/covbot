@@ -8,6 +8,7 @@ import os
 import csv
 import datetime
 import asyncio
+import math
 import whoosh
 import time
 import pycountry
@@ -48,6 +49,7 @@ HELP = {
         ' You can give a country codes, countries, states, counties, regions or cities.'
         ' E.g. !compare cn;us;uk;it;de'
     ),
+    'risks': ('!risks age', 'Show reported infection, ICU and death rate for given age.'),
     'source': ('!source', 'Find out about my data sources and developers.'),
     'help': ('!help', 'Get a reminder what I can do for you.'),
 }
@@ -584,6 +586,28 @@ class CovBot(Plugin):
             msgtype=MessageType.TEXT, formatted_body=m, format="org.matrix.custom.html")
         c.body, c.formatted_body = parse_formatted(m, allow_html=True)
         await e.respond(c, markdown=True, allow_html=True)
+
+    @command.new('risks', help=HELP['risks'][1])
+    @command.argument("age", pass_raw=True, required=True)
+    async def risks_handler(self, event: MessageEvent, age: str) -> None:
+        # source : https://www.desmos.com/calculator/v0zif7tflm
+        age = int(age)
+        if age < 0 or age > 110:
+            await self._respond(event, "Age must be between 0 and 110")
+            return
+        death_rate = max(0, -0.00186807 + 0.00000351867 * age ** 2 + (2.7595 * 10 ** -15) * age ** 7)
+        intensive_care_rate = max(0, -0.0572602 - -0.0027617 * age)
+        hospitalization_rate = max(0, -0.0730827 - age * -0.00628289)
+        survival_rate = 1 - death_rate
+        response = (
+            "Based on reports, infection with SARS-CoV-2 in a {} year old has an average {:.1%} survival chance;"
+            " with an average risk of hospitalization of {:.1%}, risk of needing intensive care of {:.1%},"
+            " and {:.1%} chance of death."
+        ).format(age, survival_rate, hospitalization_rate, intensive_care_rate, death_rate)
+            "Reported infected patients having {} years old have average of {:.1%} survial chance.",
+            "  With average risk of hospitalization of {:.1%}, intensive care of {:.1%}, and {:.1%} death."
+        ]).format(age, survival_rate, hospitalization_rate, intensive_care_rate, death_rate)
+        await self._respond(event, response)
 
     @command.new('cases', help=HELP['cases'][1])
     @command.argument("location", pass_raw=True, required=False)
