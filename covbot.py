@@ -605,7 +605,7 @@ class CovBot(Plugin):
 
         s = (
             f"I estimate a {age} year old patient sick with COVID-19 has a {survival_rate:.1%} chance of survival,"
-            f" a {h_rate:.1%} liklihood of needing to go to hospital, a {ic_rate:.1%} risk of needing intensive care there"
+            f" a {h_rate:.1%} likelihood of needing to go to hospital, a {ic_rate:.1%} risk of needing intensive care there"
             f" and a {death_rate:.1%} chance of death."
         )
 
