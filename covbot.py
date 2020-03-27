@@ -409,6 +409,9 @@ class CovBot(Plugin):
                     await self._respond(event,
                                         f"I cannot find a match for {loc}")
                     return {}
+                elif len(matches) > 5:
+                    await self._respond(event, f'I found a lot of matches for {loc}. Please could you be more specific?')
+                    return {}
                 elif len(matches) > 1:
                     ms = " - ".join(m[0] for m in matches)
                     await self._respond(event,
@@ -636,6 +639,9 @@ class CovBot(Plugin):
                 ' You may have more luck if you try a less specific location, like the country it\'s in.'
                 f' \n\nIf you think I should have data on it you can open an issue at https://github.com/pwr22/covbot/issues and Peter will take a look.'
             )
+            return
+        elif len(matches) > 5:
+            await self._respond(event, f'I found a lot of matches for {location}. Please could you be more specific?')
             return
         elif len(matches) > 1:
             ms="\n".join(m[0] for m in matches)
