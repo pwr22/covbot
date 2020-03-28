@@ -590,13 +590,18 @@ class CovBot(Plugin):
         c.body, c.formatted_body = parse_formatted(m, allow_html=True)
         await e.respond(c, markdown=True, allow_html=True)
 
+    # source : https://www.desmos.com/calculator/v0zif7tflm
     @command.new('risk', help=HELP['risk'][1])
     @command.argument("age", pass_raw=True, required=True)
     async def risks_handler(self, event: MessageEvent, age: str) -> None:
-        # source : https://www.desmos.com/calculator/v0zif7tflm
-        age = int(age)
+        try:
+            age = int(age)
+        except ValueError:
+            await self._respond(event, f'{age} does not look like a number to me.')
+            return
+
         if age < 0 or age > 110:
-            await self._respond(event, "The risk model only handles ages between 0 and 110")
+            await self._respond(event, "The risk model only handles ages between 0 and 110.")
             return
 
         # Maths that Peter doesn't really understand!
