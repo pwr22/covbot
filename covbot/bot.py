@@ -112,7 +112,7 @@ class CovBot(Plugin):
         self._room_prune_task = asyncio.create_task(self._prune_dead_rooms())
 
     async def stop(self):
-        await super().start()
+        await super().stop()
         self.client.remove_dispatcher(MembershipEventDispatcher)
         self._room_prune_task.cancel()
 
