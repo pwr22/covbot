@@ -19,4 +19,4 @@ Pull requests are welcome and if you don't have any ideas what to work on then c
 
 ## Self-Hosting
 
-To run your own instance, download the latest release and upload to your [maubot](https://maubot.xyz).
+To run your own, download the latest release and upload to your [maubot](https://maubot.xyz) instance. [Here's](https://www.tmplab.org/2020/04/01/how-to-install-and-run-bots-for-the-matrix-network/) a good guide on getting started!
