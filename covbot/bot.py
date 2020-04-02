@@ -685,7 +685,7 @@ class CovBot(Plugin):
                                         tabletype= "text",
                                         length = "long")
         if t:
-            await self._respond_formatted(event, f'<pre>{t}</pre>')
+            await self._respond_formatted(event, f'<pre><code>{t}</code></pre>')
 
     @command.new('source', help = HELP['source'][1])
     async def source_handler(self, event: MessageEvent) -> None:
