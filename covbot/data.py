@@ -53,6 +53,7 @@ class DataSource:
     async def _get_nhs(self):
         regions = {}
 
+        self.log.debug("Fetching %s.", NHS_URL)
         async with self.http.get(NHS_URL) as r:
             t = await r.text()
             l = t.splitlines()
@@ -67,6 +68,7 @@ class DataSource:
     async def _get_uk(self):
         regions = {}
 
+        self.log.debug("Fetching %s.", UK_URL)
         async with self.http.get(UK_URL) as r:
             t = await r.text()
             l = t.splitlines()
@@ -96,25 +98,29 @@ class DataSource:
 
             if not country in countries:
                 countries[country] = {'areas': {}}
-
+#
+            # handle missing data
             cases = 0 if row['Confirmed'] == '' else int(row['Confirmed'])
             deaths = 0 if row['Deaths'] == '' else int(row['Deaths'])
             recoveries = 0 if row['Recovered'] == '' else int(row['Recovered'])
-
             ts_msec = now if row['LastUpdated'] == '' else int(
                 row['LastUpdated'])
+
             ts = ts_msec // 1000
             last_update = datetime.datetime.utcfromtimestamp(ts)
 
             area = row['Province']
+            # Do we have a total?
+            # area for totals can be either blank or matching the country
             if area == '' or area.lower() == country.lower():
                 if 'totals' in countries[country]:
-                    self.log.warning('Duplicate totals for %s', country)
+                    self.log.warning('Duplicate totals for %s.', country)
 
                 d = {'cases': cases, 'deaths': deaths,
                      'recoveries': recoveries, 'last_update': last_update}
+                # TODO take the max for each value
                 countries[country]['totals'] = d
-            else:
+            else:  # or an area?
                 d = {'cases': cases, 'deaths': deaths,
                      'recoveries': recoveries, 'last_update': last_update}
                 countries[country]['areas'][area] = d
@@ -124,7 +130,7 @@ class DataSource:
     def _update_index(self):
         # create a new index
         d = '/tmp/covbotindex'
-        self.log.debug('Updating index in %s', d)
+        self.log.debug('Updating index in %s.', d)
         if not os.path.exists(d):
             os.mkdir(d)
 
@@ -148,12 +154,12 @@ class DataSource:
             self.log.info('Updating data.')
             offloop, nhs, uk = await asyncio.gather(self._get_offloop_cases(), self._get_nhs(), self._get_uk())
 
-            for r, cases in nhs.items():
-                offloop['United Kingdom']['areas'][r] = {
+            # TODO take the max value
+            for area, cases in nhs.items():
+                offloop['United Kingdom']['areas'][area] = {
                     'cases': cases, 'last_update': now}
-
-            for r, cases in uk.items():
-                offloop['United Kingdom']['areas'][r] = {
+            for area, cases in uk.items():
+                offloop['United Kingdom']['areas'][area] = {
                     'cases': cases, 'last_update': now}
 
             self.cases = offloop
@@ -161,11 +167,13 @@ class DataSource:
 
             self.next_update_at = now + datetime.timedelta(minutes=15)
         else:
-            self.log.info('Too early to update - using cached data.')
+            self.log.info('Using cached data.')
 
     def _exact_country_code_match(self, query: str) -> list:
-        self.log.info('Trying an exact country code match on %s', query)
+        self.log.debug('Trying an exact country code match on %s.', query)
         cc = query.upper()
+
+        # TODO generalise.
         # Handle UK alias.
         if cc == 'UK':
             cc = 'GB'
@@ -173,16 +181,16 @@ class DataSource:
         c = pycountry.countries.get(
             alpha_2=cc) or pycountry.countries.get(alpha_3=cc)
         if c != None:
-            self.log.info('%s is %s', cc, c.name)
+            self.log.debug('Country code %s is %s.', cc, c.name)
 
             if c.name not in self.cases:
-                self.log.warn('No data for %s', c.name)
+                self.log.warn('No data for %s.', c.name)
                 return None
 
             d = self.cases[c.name]
 
             if not 'totals' in d:
-                self.log.debug('No totals found for %s', c.name)
+                self.log.debug('No totals found for %s.', c.name)
                 return None
 
             return [(c.name, d['totals'])]
@@ -190,13 +198,13 @@ class DataSource:
         return None
 
     def _exact_country_match(self, query: str) -> list:
-        self.log.info('Trying an exact country match on %s', query)
+        self.log.debug('Trying an exact country match on %s.', query)
         for country in self.cases:
             if country.lower() == query.lower():
-                self.log.debug('Got an exact country match on %s', query)
+                self.log.debug('Got an exact country match on %s.', query)
 
                 if 'totals' not in self.cases[country]:
-                    self.log.debug('No totals found for %s', country)
+                    self.log.debug('No totals found for %s.', country)
                     return None
 
                 return [(country, self.cases[country]['totals'])]
@@ -204,7 +212,7 @@ class DataSource:
         return None
 
     def _exact_region_match(self, query: str) -> list:
-        self.log.info('Trying an exact region match on %s', query)
+        self.log.debug('Trying an exact region match on %s.', query)
         regions = []
         for country, data in self.cases.items():
             for area, data in data['areas'].items():
@@ -213,12 +221,12 @@ class DataSource:
 
         if len(regions) > 0:
             self.log.debug(
-                'Got exact region matches on %s: %s', query, regions)
+                'Got exact region matches on %s: %s.', query, regions)
 
         return regions
 
     def _wildcard_location_match(self, query: str) -> list:
-        self.log.info('Trying a wildcard location match on %s', query)
+        self.log.debug('Trying a wildcard location match on %s.', query)
         with self.index.searcher() as s:
             qs = f'*{query}*'
             q = QueryParser("location", SCHEMA).parse(qs)
@@ -237,12 +245,12 @@ class DataSource:
 
             if len(locs) > 0:
                 self.log.debug(
-                    'Found wildcard location matches on %s: %s', query, locs)
+                    'Found wildcard location matches on %s: %s.', query, locs)
 
             return locs
 
     def get(self, query: str) -> list:
-        self.log.info('Looking up data for %s', query)
+        self.log.info('Looking up data for %s.', query)
 
         m = self._exact_country_code_match(query)
         if m != None:
@@ -262,8 +270,8 @@ class DataSource:
 
         return []
 
-    def get_mult(self, *queries: list)-> list:
-        return [ self.get(q) for q in queries ]
+    def get_mult(self, *queries: list) -> list:
+        return [self.get(q) for q in queries]
 
     @classmethod
     def get_sources(cls) -> str:
