@@ -71,20 +71,24 @@ class CovBot(Plugin):
         while True:
             users = set()
             rooms = await self._handle_rate_limit(lambda: self.client.get_joined_rooms())
-            self.log.info('I am in %s rooms.', len(rooms))
 
+            left = 0
             for r in rooms:
+                self.log.info('Tidying up empty rooms.')
                 members = await self._handle_rate_limit(lambda: self.client.get_joined_members(r))
 
                 if len(members) == 1:
-                    self.log.debug('Leaving room %s since it is empty.', r)
+                    self.log.debug('Leaving empty room %s.', r)
                     await self._handle_rate_limit(lambda: self.client.leave_room(r))
+                    left += 1
                 else:
                     for m in members:
                         users.add(m)
 
-            self.log.info('I talk to %s unique users.', len(users))
-            await asyncio.sleep(60 * 60 * 24)  # once per day
+            self.log.debug('I am in %s rooms.', len(rooms) - left)
+            self.log.debug('I reach %s unique users.',
+                           len(users) - 1)  # ignore myself
+            await asyncio.sleep(60 * 60)  # once per hour
 
     @classmethod
     def get_config_class(cls) -> BaseProxyConfig:
@@ -97,7 +101,7 @@ class CovBot(Plugin):
         self.client.add_dispatcher(MembershipEventDispatcher)
         self._room_prune_task = asyncio.create_task(self._prune_dead_rooms())
         self.data = DataSource(self.log, self.http)
-        await self.data.update()
+        await self.data.update()  # get initial data
 
     async def stop(self):
         await super().stop()
@@ -127,6 +131,8 @@ class CovBot(Plugin):
             United States → US
             Manchester, GB → Manch..r ,GB
         """
+
+        self.log.debug('Shortening %s.', location)
 
         # Exact country case (1)
         try:
@@ -187,6 +193,8 @@ class CovBot(Plugin):
         no meaningful sense (eg countries + world data).
         """
         MISSINGDATA = "---"
+
+        self.log.debug('Building table for %s', data.keys())
 
         try:
             await self.data.update()
@@ -302,13 +310,20 @@ class CovBot(Plugin):
     @command.new('risk', help=HELP['risk'][1])
     @command.argument("age", pass_raw=True, required=True)
     async def risks_handler(self, event: MessageEvent, age: str) -> None:
+        self.log.info(
+            "Responding to !risk request for age %s from %s.", age, event.sender)
+
         try:
             age = int(age)
         except ValueError:
+            self.log.warn(
+                "Age %s is not an int, letting %s know.", age, event.sender)
             await self._respond(event, f'{age} does not look like a number to me.')
             return
 
         if age < 0 or age > 110:
+            self.log.warn(
+                '%s is out of the age range of the risk model, letting %s know.', age, event.sender)
             await self._respond(event, "The risk model only handles ages between 0 and 110.")
             return
 
@@ -333,17 +348,21 @@ class CovBot(Plugin):
         if location == "":
             location = "World"
 
-        self.log.info('Responding to cases request for %s.', location)
+        self.log.info('Responding to !cases request for %s from %s.',
+                      location, event.sender)
 
         try:
             await self.data.update()
         except Exception as e:
-            self.log.warn('Failed to update data: %s.', e)
+            self.log.warn(
+                'Failed to update data, letting %s know: %s.', event.sender, e)
             await self._respond(event, 'Something went wrong fetching the latest data so stats may be outdated.')
 
         matches = self.data.get(location)
 
         if len(matches) == 0:
+            self.log.debug(
+                'No matches found for %s, letting %s know.', location, event.sender)
             await self._respond(
                 event,
                 f'My data doesn\'t seem to include {location}.'
@@ -353,9 +372,13 @@ class CovBot(Plugin):
             )
             return
         elif len(matches) > 5:
+            self.log.debug(
+                "Too many results for %s, advising %s to be more specific.", location, event.sender)
             await self._respond(event, f'I found a lot of matches for {location}. Please could you be more specific?')
             return
         elif len(matches) > 1:
+            self.log.debug(
+                "Found multiple results for %s, providing them to %sr so they can try again.", location, event.sender)
             ms = "\n".join(m[0] for m in matches)
             await self._respond(event, f"Which of these did you mean?\n\n{ms}")
             return
@@ -387,20 +410,27 @@ class CovBot(Plugin):
     @command.new('compare', help=HELP["compare"][1])
     @command.argument("locations", pass_raw=True, required=True)
     async def table_handler(self, event: MessageEvent, locations: str) -> None:
-        self.log.info("Handling compare request")
+        self.log.info(
+            "Responding to !compare request for %s from %s.", locations, event.sender)
 
         results = {}
         for loc in locations.split(";"):
             matches = self.data.get(loc)
 
             if len(matches) == 0:
+                self.log.debug(
+                    "No matches found for %s, letting %s know.", loc, event.sender)
                 await self._respond(event,
                                     f"I cannot find a match for {loc}")
                 return
             elif len(matches) > 5:
+                self.log.debug(
+                    "Too many results for %s, advising %s to be more specific.", loc, event.sender)
                 await self._respond(event, f'I found a lot of matches for {loc}. Please could you be more specific?')
                 return {}
             elif len(matches) > 1:
+                self.log.debug(
+                    "Found multiple results for %s, providing them to %s so they can try again.", loc, event.sender)
                 ms = " - ".join(m[0] for m in matches)
                 await self._respond(event,
                                     f"Multiple results for {loc}: {ms}. "
@@ -411,7 +441,6 @@ class CovBot(Plugin):
             loc, data = m
             results[loc] = data
 
-        
         t = await self._locations_table(event, data=results,
                                         tabletype="text",
                                         length="long")
@@ -420,7 +449,7 @@ class CovBot(Plugin):
 
     @command.new('source', help=HELP['source'][1])
     async def source_handler(self, event: MessageEvent) -> None:
-        self.log.info('Responding to source request.')
+        self.log.info('Responding to !source request from %s.', event.sender)
         await self._respond(
             event,
             'I was created by Peter Roberts and MIT licensed on Github at https://github.com/pwr22/covbot.'
@@ -430,7 +459,7 @@ class CovBot(Plugin):
 
     @command.new('help', help=HELP['help'][1])
     async def help_handler(self, event: MessageEvent) -> None:
-        self.log.info('Responding to help request.')
+        self.log.info('Responding to !help request from %s.', event.sender)
 
         s = 'You can message me any of these commands:\n\n'
         s += '\n\n'.join(f'{usage} - {desc}' for (usage,
@@ -443,7 +472,7 @@ class CovBot(Plugin):
 
     @command.new('announce', help='Send broadcast a message to all rooms.')
     @command.argument("message", pass_raw=True, required=True)
-    async def accounce(self, event: MessageEvent, message: str) -> None:
+    async def announce_handler(self, event: MessageEvent, message: str) -> None:
 
         if event.sender not in self.config['admins']:
             self.log.warn(
@@ -477,7 +506,7 @@ class CovBot(Plugin):
         # work around duplicate joins
         self._rooms_joined[event.room_id] = True
         self.log.info(
-            'Sending unsolicited help on join to room %s', event.room_id)
+            'Sending unsolicited help on join to room %s.', event.room_id)
 
         s = 'Hi, I am a bot that tracks SARS-COV-2 infection statistics for you. You can message me any of these commands:\n\n'
         s += '\n'.join(f'{usage} - {desc}' for (usage, desc) in HELP.values())
