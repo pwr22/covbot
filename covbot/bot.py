@@ -388,7 +388,7 @@ class CovBot(Plugin):
     @command.argument("locations", pass_raw=True, required=True)
     async def table_handler(self, event: MessageEvent, locations: str) -> None:
         self.log.info("Handling compare request")
-        
+
         results = {}
         for loc in locations.split(";"):
             matches = self.data.get(loc)
@@ -424,7 +424,7 @@ class CovBot(Plugin):
         await self._respond(
             event,
             'I was created by Peter Roberts and MIT licensed on Github at https://github.com/pwr22/covbot.'
-            f' I fetch new data every 15 minutes from {CASE_DATA_URL}, {UK_NHS_REGIONS_URL} and {UK_REGIONS_URL}.'
+            f' I fetch new data every 15 minutes from {self.data.get_sources()}.'
             f' Risk estimates are based on the model at https://www.desmos.com/calculator/v0zif7tflm.'
         )
 

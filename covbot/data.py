@@ -264,3 +264,7 @@ class DataSource:
 
     def get_mult(self, *queries: list)-> list:
         return [ self.get(q) for q in queries ]
+
+    @classmethod
+    def get_sources(cls) -> str:
+        return f"{OFFLOOP_CASES_URL}, {NHS_URL} and {UK_URL}"
