@@ -156,34 +156,7 @@ class CovBot(Plugin):
                 location[-int((length-2)/2):]
             ])
 
-    async def _get_multiple_locations(self, event: MessageEvent, location: str) -> dict:
-        """Split locations on ';' and look up"""
-
-        results = {}
-        for loc in location.split(";"):
-            matches = self.data.get(loc)
-
-            if len(matches) == 0:
-                await self._respond(event,
-                                    f"I cannot find a match for {loc}")
-                return {}
-            elif len(matches) > 5:
-                await self._respond(event, f'I found a lot of matches for {loc}. Please could you be more specific?')
-                return {}
-            elif len(matches) > 1:
-                ms = " - ".join(m[0] for m in matches)
-                await self._respond(event,
-                                    f"Multiple results for {loc}: {ms}. "
-                                    "Please provide one.")
-                return {}
-
-            m = matches.pop()  # there's only one
-            loc, data = m
-            results[loc] = data
-
-        return results
-
-    async def _locations_table(self, event: MessageEvent, location: str,
+    async def _locations_table(self, event: MessageEvent, data: dict,
                                tabletype=str("text"),
                                length=str("long")) -> str:
         """Build a table of locations to respond to.
@@ -215,10 +188,6 @@ class CovBot(Plugin):
         """
         MISSINGDATA = "---"
 
-        # Preamble: set sane defaults
-        if location == "":
-            location = "World"
-
         try:
             await self.data.update()
         except Exception as e:
@@ -226,18 +195,13 @@ class CovBot(Plugin):
             await event.respond("Something went wrong fetching "
                                 "the latest data so stats may be outdated.")
 
-        results = await self._get_multiple_locations(event, location)
-
-        if not results:
-            return
-
         columns = ["Location", "Cases"]
 
-        if [v for v in results.values() if "recoveries" in v]:
+        if [v for v in data.values() if "recoveries" in v]:
             # At least one of the results has recovery data
             columns.extend(["Recovered", "%"])
 
-        if [v for v in results.values() if "deaths" in v]:
+        if [v for v in data.values() if "deaths" in v]:
             # At least one of the results has deaths data
             columns.extend(["Deaths", "%"])
 
@@ -248,7 +212,7 @@ class CovBot(Plugin):
 
         # TODO: sort by cases descending
         tabledata = []
-        for location, data in results.items():
+        for location, data in data.items():
             rowdata = []
             cases = data['cases']
 
@@ -311,7 +275,7 @@ class CovBot(Plugin):
         table = tabulate(tabledata, headers=columns,
                          tablefmt=tablefmt, floatfmt=".1f")
 
-        if results:
+        if data:
             return table
 
     async def _respond(self, e: MessageEvent, m: str) -> None:
@@ -425,7 +389,30 @@ class CovBot(Plugin):
     async def table_handler(self, event: MessageEvent, locations: str) -> None:
         self.log.info("Handling compare request")
         
-        t = await self._locations_table(event, location=locations,
+        results = {}
+        for loc in locations.split(";"):
+            matches = self.data.get(loc)
+
+            if len(matches) == 0:
+                await self._respond(event,
+                                    f"I cannot find a match for {loc}")
+                return
+            elif len(matches) > 5:
+                await self._respond(event, f'I found a lot of matches for {loc}. Please could you be more specific?')
+                return {}
+            elif len(matches) > 1:
+                ms = " - ".join(m[0] for m in matches)
+                await self._respond(event,
+                                    f"Multiple results for {loc}: {ms}. "
+                                    "Please provide one.")
+                return {}
+
+            m = matches.pop()  # there's only one
+            loc, data = m
+            results[loc] = data
+
+        
+        t = await self._locations_table(event, data=results,
                                         tabletype="text",
                                         length="long")
         if t:
