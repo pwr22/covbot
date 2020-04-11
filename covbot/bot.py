@@ -69,12 +69,12 @@ class CovBot(Plugin):
 
     async def _prune_dead_rooms(self):
         while True:
+            self.log.info('Tidying up empty rooms.')
             users = set()
             rooms = await self._handle_rate_limit(lambda: self.client.get_joined_rooms())
 
             left = 0
             for r in rooms:
-                self.log.info('Tidying up empty rooms.')
                 members = await self._handle_rate_limit(lambda: self.client.get_joined_members(r))
 
                 if len(members) == 1:
