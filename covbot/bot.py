@@ -287,7 +287,7 @@ class CovBot(Plugin):
             return table
 
     async def _respond(self, e: MessageEvent, m: str) -> None:
-        c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
+        c = TextMessageEventContent(msgtype=MessageType.NOTICE, body=m)
         await self._handle_rate_limit(lambda: e.respond(c))
 
     @staticmethod
@@ -302,7 +302,7 @@ class CovBot(Plugin):
         Desktop/web Riot.im does render MD/HTML in m.notice, however.
         """
         c = TextMessageEventContent(
-            msgtype=MessageType.TEXT, formatted_body=m, format="org.matrix.custom.html")
+            msgtype=MessageType.NOTICE, formatted_body=m, format="org.matrix.custom.html")
         c.body, c.formatted_body = parse_formatted(m, allow_html=True)
         await e.respond(c, markdown=True, allow_html=True)
 
@@ -467,7 +467,7 @@ class CovBot(Plugin):
         await self._message(event.room_id, s)
 
     async def _message(self, room_id, m: str) -> None:
-        c = TextMessageEventContent(msgtype=MessageType.TEXT, body=m)
+        c = TextMessageEventContent(msgtype=MessageType.NOTICE, body=m)
         await self._handle_rate_limit(lambda: self.client.send_message(room_id=room_id, content=c))
 
     @command.new('announce', help='Send broadcast a message to all rooms.')
