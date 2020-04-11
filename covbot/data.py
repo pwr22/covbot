@@ -18,6 +18,7 @@ OFFLOOP_CASES_URL = 'http://offloop.net/covid19h/unconfirmed.csv'
 OFFLOOP_GROUPS_URL = 'https://offloop.net/covid19h/groups.txt'
 NHS_URL = 'https://www.arcgis.com/sharing/rest/content/items/ca796627a2294c51926865748c4a56e8/data'
 UK_URL = 'https://www.arcgis.com/sharing/rest/content/items/b684319181f94875a6879bbc833ca3a6/data'
+FINLAND_URL = 'https://w3qa5ydb4l.execute-api.eu-west-1.amazonaws.com/prod/finnishCoronaData/v2'
 
 COUNTRY_RENAMES = {
     'US': 'United States',
@@ -127,6 +128,25 @@ class DataSource:
 
         return countries
 
+    async def _get_finland(self):
+        districts = {}
+
+        self.log.debug("Fetching %s.", UK_URL)
+        async with self.http.get(FINLAND_URL) as r:
+            j = await r.json()
+
+        for case in j['confirmed']:
+            d = case['healthCareDistrict']
+            if d == None or d == '': # skip missing data
+                continue
+
+            if d not in districts:
+                districts[d] = 1
+            else:
+                districts[d] += 1
+
+        return districts
+
     def _update_index(self):
         # create a new index
         d = '/tmp/covbotindex'
@@ -152,7 +172,7 @@ class DataSource:
 
         if self.next_update_at == None or now >= self.next_update_at:
             self.log.info('Updating data.')
-            offloop, nhs, uk = await asyncio.gather(self._get_offloop_cases(), self._get_nhs(), self._get_uk())
+            offloop, nhs, uk, finland = await asyncio.gather(self._get_offloop_cases(), self._get_nhs(), self._get_uk(), self._get_finland())
 
             # TODO take the max value
             for area, cases in nhs.items():
@@ -160,6 +180,9 @@ class DataSource:
                     'cases': cases, 'last_update': now}
             for area, cases in uk.items():
                 offloop['United Kingdom']['areas'][area] = {
+                    'cases': cases, 'last_update': now}
+            for area, cases in finland.items():
+                offloop['Finland']['areas'][area] = {
                     'cases': cases, 'last_update': now}
 
             self.cases = offloop
@@ -275,4 +298,4 @@ class DataSource:
 
     @classmethod
     def get_sources(cls) -> str:
-        return f"{OFFLOOP_CASES_URL}, {NHS_URL} and {UK_URL}"
+        return f"{OFFLOOP_CASES_URL}, {NHS_URL}, {UK_URL} and {FINLAND_URL}"
