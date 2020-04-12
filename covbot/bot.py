@@ -287,11 +287,16 @@ class CovBot(Plugin):
             return table
 
     async def _respond(self, e: MessageEvent, m: str) -> None:
-        c = TextMessageEventContent(msgtype=MessageType.NOTICE, body=m)
+        # IRC people don't like notices.
+        if '@appservice-irc:matrix.org' in await self.client.get_joined_members(e.room_id):
+            t = MessageType.TEXT
+        else:  # But matrix people do.
+            t = MessageType.NOTICE
+
+        c = TextMessageEventContent(msgtype=t, body=m)
         await self._handle_rate_limit(lambda: e.respond(c))
 
-    @staticmethod
-    async def _respond_formatted(e: MessageEvent, m: str) -> None:
+    async def _respond_formatted(self, e: MessageEvent, m: str) -> None:
         """Respond with formatted message in m.text matrix format,
         not m.notice.
 
@@ -301,8 +306,14 @@ class CovBot(Plugin):
 
         Desktop/web Riot.im does render MD/HTML in m.notice, however.
         """
+        # IRC people don't like notices.
+        if '@appservice-irc:matrix.org' in await self.client.get_joined_members(e.room_id):
+            t = MessageType.TEXT
+        else:  # But matrix people do.
+            t = MessageType.NOTICE
+
         c = TextMessageEventContent(
-            msgtype=MessageType.NOTICE, formatted_body=m, format="org.matrix.custom.html")
+            msgtype=t, formatted_body=m, format="org.matrix.custom.html")
         c.body, c.formatted_body = parse_formatted(m, allow_html=True)
         await e.respond(c, markdown=True, allow_html=True)
 
@@ -467,7 +478,13 @@ class CovBot(Plugin):
         await self._message(event.room_id, s)
 
     async def _message(self, room_id, m: str) -> None:
-        c = TextMessageEventContent(msgtype=MessageType.NOTICE, body=m)
+        # IRC people don't like notices.
+        if '@appservice-irc:matrix.org' in await self.client.get_joined_members(room_id):
+            t = MessageType.TEXT
+        else: # But matrix people do.
+            t = MessageType.NOTICE
+
+        c = TextMessageEventContent(msgtype=t, body=m)
         await self._handle_rate_limit(lambda: self.client.send_message(room_id=room_id, content=c))
 
     @command.new('announce', help='Send broadcast a message to all rooms.')
