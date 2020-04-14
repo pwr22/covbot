@@ -12,6 +12,7 @@ import math
 import whoosh
 import time
 import pycountry
+import traceback
 from whoosh.fields import Schema, TEXT
 from whoosh.index import create_in, FileIndex
 from whoosh.qparser import QueryParser
@@ -63,9 +64,6 @@ class CovBot(Plugin):
                 self.log.warning(
                     'API rate limit exceepted so backing off for %s seconds.', RATE_LIMIT_BACKOFF_SECONDS)
                 await asyncio.sleep(RATE_LIMIT_BACKOFF_SECONDS)
-            except Exception as e:  # ignore other errors but give up
-                self.log.warning('%s', e)
-                return
 
     async def _prune_dead_rooms(self):
         while True:
@@ -198,8 +196,9 @@ class CovBot(Plugin):
 
         try:
             await self.data.update()
-        except Exception as e:
-            self.log.warn('Failed to update data: %s.', e)
+        except Exception:
+            tb = traceback.format_exc()
+            self.log.warn('Failed to update data: %s.', tb)
             await event.respond("Something went wrong fetching "
                                 "the latest data so stats may be outdated.")
 
@@ -364,9 +363,10 @@ class CovBot(Plugin):
 
         try:
             await self.data.update()
-        except Exception as e:
+        except Exception:
+            tb = traceback.format_exc()
             self.log.warn(
-                'Failed to update data, letting %s know: %s.', event.sender, e)
+                'Failed to update data, letting %s know: %s.', event.sender, tb)
             await self._respond(event, 'Something went wrong fetching the latest data so stats may be outdated.')
 
         matches = self.data.get(location)
