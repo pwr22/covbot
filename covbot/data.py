@@ -36,6 +36,7 @@ class DataSource:
         # TODO create our own logger
         self.log, self.http = log, http
         self.next_update_at = None
+        self.cases = {}
 
     async def _get_offloop_groups(self):
         groups = {}
@@ -172,15 +173,16 @@ class DataSource:
 
         if self.next_update_at == None or now >= self.next_update_at:
             self.log.info('Updating data.')
-            offloop, nhs, uk, finland = await asyncio.gather(self._get_offloop_cases(), self._get_nhs(), self._get_uk(), self._get_finland())
+            # offloop, nhs, uk, finland = await asyncio.gather(self._get_offloop_cases(), self._get_nhs(), self._get_uk(), self._get_finland())
+            offloop, finland = await asyncio.gather(self._get_offloop_cases(), self._get_finland())
 
             # TODO take the max value
-            for area, cases in nhs.items():
-                offloop['United Kingdom']['areas'][area] = {
-                    'cases': cases, 'last_update': now}
-            for area, cases in uk.items():
-                offloop['United Kingdom']['areas'][area] = {
-                    'cases': cases, 'last_update': now}
+            # for area, cases in nhs.items():
+            #     offloop['United Kingdom']['areas'][area] = {
+            #         'cases': cases, 'last_update': now}
+            # for area, cases in uk.items():
+            #     offloop['United Kingdom']['areas'][area] = {
+            #         'cases': cases, 'last_update': now}
             for area, cases in finland.items():
                 offloop['Finland']['areas'][area] = {
                     'cases': cases, 'last_update': now}
