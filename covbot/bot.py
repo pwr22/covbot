@@ -64,6 +64,10 @@ class CovBot(Plugin):
                 self.log.warning(
                     'API rate limit exceepted so backing off for %s seconds.', RATE_LIMIT_BACKOFF_SECONDS)
                 await asyncio.sleep(RATE_LIMIT_BACKOFF_SECONDS)
+            except Exception:  # ignore other errors but give up
+                tb = traceback.format_exc()
+                self.log.warning('%s', tb)
+                return
 
     async def _prune_dead_rooms(self):
         while True:
