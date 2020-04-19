@@ -24,6 +24,8 @@ from mautrix.errors.request import MLimitExceeded
 from .data import DataSource
 
 RATE_LIMIT_BACKOFF_SECONDS = 10
+UPDATE_INTERVAL_SECONDS = 15 * 60
+ROOM_PRUNE_INTERVAL_SECONDS = 60 * 60
 
 # command: ( usage, description )
 HELP = {
@@ -90,7 +92,18 @@ class CovBot(Plugin):
             self.log.debug('I am in %s rooms.', len(rooms) - left)
             self.log.debug('I reach %s unique users.',
                            len(users) - 1)  # ignore myself
-            await asyncio.sleep(60 * 60)  # once per hour
+            await asyncio.sleep(ROOM_PRUNE_INTERVAL_SECONDS)
+
+    async def _update_data(self):
+        while True:
+            try:
+                await self.data.update()
+            except Exception:
+                tb = traceback.format_exc()
+                self.log.warn(
+                    'Failed to update data: %s.', tb)
+
+            await asyncio.sleep(UPDATE_INTERVAL_SECONDS)
 
     @classmethod
     def get_config_class(cls) -> BaseProxyConfig:
@@ -101,14 +114,15 @@ class CovBot(Plugin):
         self.config.load_and_update()
         # So we can get room join events.
         self.client.add_dispatcher(MembershipEventDispatcher)
-        self._room_prune_task = asyncio.create_task(self._prune_dead_rooms())
         self.data = DataSource(self.log, self.http)
-        await self.data.update()  # get initial data
+        self._data_update_task = asyncio.create_task(self._update_data())
+        self._room_prune_task = asyncio.create_task(self._prune_dead_rooms())
 
     async def stop(self):
         await super().stop()
         self.client.remove_dispatcher(MembershipEventDispatcher)
         self._room_prune_task.cancel()
+        self._data_update_task.cancel()
 
     def _short_location(self, location: str, length=int(12)) -> str:
         """Returns a shortened location name.
@@ -197,15 +211,6 @@ class CovBot(Plugin):
         MISSINGDATA = "---"
 
         self.log.debug('Building table for %s', data.keys())
-
-        try:
-            await self.data.update()
-        except Exception:
-            tb = traceback.format_exc()
-            self.log.warn('Failed to update data: %s.', tb)
-            await event.respond("Something went wrong fetching "
-                                "the latest data so stats may be outdated.")
-
         columns = ["Location", "Cases"]
 
         if [v for v in data.values() if "recoveries" in v]:
@@ -364,15 +369,6 @@ class CovBot(Plugin):
 
         self.log.info('Responding to !cases request for %s from %s.',
                       location, event.sender)
-
-        try:
-            await self.data.update()
-        except Exception:
-            tb = traceback.format_exc()
-            self.log.warn(
-                'Failed to update data, letting %s know: %s.', event.sender, tb)
-            await self._respond(event, 'Something went wrong fetching the latest data so stats may be outdated.')
-
         matches = self.data.get(location)
 
         if len(matches) == 0:
@@ -485,7 +481,7 @@ class CovBot(Plugin):
         # IRC people don't like notices.
         if '@appservice-irc:matrix.org' in await self.client.get_joined_members(room_id):
             t = MessageType.TEXT
-        else: # But matrix people do.
+        else:  # But matrix people do.
             t = MessageType.NOTICE
 
         c = TextMessageEventContent(msgtype=t, body=m)

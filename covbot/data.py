@@ -37,6 +37,7 @@ class DataSource:
         self.log, self.http = log, http
         self.next_update_at = None
         self.cases = {}
+        self.groups = {}
 
     async def _get_offloop_groups(self):
         groups = {}
