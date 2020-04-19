@@ -35,7 +35,6 @@ class DataSource:
     def __init__(self, log, http):
         # TODO create our own logger
         self.log, self.http = log, http
-        self.next_update_at = None
         self.cases = {}
         self.groups = {}
 
@@ -172,28 +171,23 @@ class DataSource:
     async def update(self):
         now = datetime.datetime.utcfromtimestamp(int(time.time()))
 
-        if self.next_update_at == None or now >= self.next_update_at:
-            self.log.info('Updating data.')
-            # offloop, nhs, uk, finland = await asyncio.gather(self._get_offloop_cases(), self._get_nhs(), self._get_uk(), self._get_finland())
-            offloop, finland = await asyncio.gather(self._get_offloop_cases(), self._get_finland())
+        self.log.info('Updating data.')
+        # offloop, nhs, uk, finland = await asyncio.gather(self._get_offloop_cases(), self._get_nhs(), self._get_uk(), self._get_finland())
+        offloop, finland = await asyncio.gather(self._get_offloop_cases(), self._get_finland())
 
-            # TODO take the max value
-            # for area, cases in nhs.items():
-            #     offloop['United Kingdom']['areas'][area] = {
-            #         'cases': cases, 'last_update': now}
-            # for area, cases in uk.items():
-            #     offloop['United Kingdom']['areas'][area] = {
-            #         'cases': cases, 'last_update': now}
-            for area, cases in finland.items():
-                offloop['Finland']['areas'][area] = {
-                    'cases': cases, 'last_update': now}
+        # TODO take the max value
+        # for area, cases in nhs.items():
+        #     offloop['United Kingdom']['areas'][area] = {
+        #         'cases': cases, 'last_update': now}
+        # for area, cases in uk.items():
+        #     offloop['United Kingdom']['areas'][area] = {
+        #         'cases': cases, 'last_update': now}
+        for area, cases in finland.items():
+            offloop['Finland']['areas'][area] = {
+                'cases': cases, 'last_update': now}
 
-            self.cases = offloop
-            await asyncio.get_running_loop().run_in_executor(None, self._update_index)
-
-            self.next_update_at = now + datetime.timedelta(minutes=15)
-        else:
-            self.log.info('Using cached data.')
+        self.cases = offloop
+        await asyncio.get_running_loop().run_in_executor(None, self._update_index)
 
     def _exact_country_code_match(self, query: str) -> list:
         self.log.debug('Trying an exact country code match on %s.', query)
