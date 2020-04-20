@@ -55,9 +55,6 @@ class Config(BaseProxyConfig):
 
 
 class CovBot(Plugin):
-    next_update_at: datetime.datetime = None
-    _rooms_joined = {}
-
     async def _handle_rate_limit(self, api_call_wrapper):
         while True:
             try:
@@ -112,9 +109,12 @@ class CovBot(Plugin):
     async def start(self):
         await super().start()
         self.config.load_and_update()
-        # So we can get room join events.
-        self.client.add_dispatcher(MembershipEventDispatcher)
+
+        self._rooms_joined = {}
+        self.client.add_dispatcher(MembershipEventDispatcher)  # for room joins
         self.data = DataSource(self.log, self.http)
+
+        # start up our long running tasks
         self._data_update_task = asyncio.create_task(self._update_data())
         self._room_prune_task = asyncio.create_task(self._prune_dead_rooms())
 
