@@ -150,7 +150,7 @@ class CovBot(Plugin):
         await super().start()
         self.config.load_and_update()
 
-        self._rooms_joined = {}
+        self._rooms_already_joined = set(await self._handle_rate_limit(lambda: self.client.get_joined_rooms()))
         self._prev_world_totals = None
         self.client.add_dispatcher(MembershipEventDispatcher)  # for room joins
         self.data = DataSource(self.log, self.http)
@@ -563,13 +563,13 @@ class CovBot(Plugin):
         if event.sender != me:
             return
 
-        if event.room_id in self._rooms_joined:
+        if event.room_id in self._rooms_already_joined:
             self.log.warning(
                 'Duplicate join event for room %s.', event.room_id)
             return
 
         # work around duplicate joins
-        self._rooms_joined[event.room_id] = True
+        self._rooms_already_joined.add(event.room_id)
         self.log.info(
             'Sending unsolicited help on join to room %s.', event.room_id)
 
