@@ -124,16 +124,21 @@ class CovBot(Plugin):
                     self.next_broadcast_at = self.next_broadcast_at + BROADCAST_PERIOD
                     continue
 
-                self.log.info('Broadcasting world update')
                 _, current_data = self.data.get('World').pop()
-                new_cases = current_data['cases'] - prev_data['cases']
+                prev, curr = prev_data['cases'], current_data['cases']
+                new_cases = curr - prev
 
-                msg = f'There have been {new_cases:,} new cases worldwide in {BROADCAST_PERIOD_STRING}.'
+                if new_cases < 0:
+                    self.log.error(
+                        'Skipping broadcast update as new cases are negative: %s - previous: %s - current: %s', new_cases, prev, curr)
+                    self.next_broadcast_at = self.next_broadcast_at + BROADCAST_PERIOD
+                    continue
 
                 rooms = await self._handle_rate_limit(lambda: self.client.get_joined_rooms())
                 self.log.info('Sending broadcase update to all %s rooms.',
                               len(rooms))
 
+                msg = f'There have been {new_cases:,} new cases worldwide in {BROADCAST_PERIOD_STRING}.'
                 for r in rooms:
                     await self._message(r, msg)
 
