@@ -26,8 +26,8 @@ from .data import DataSource
 RATE_LIMIT_BACKOFF_SECONDS = 10
 UPDATE_INTERVAL_SECONDS = 15 * 60
 ROOM_PRUNE_INTERVAL_SECONDS = 60 * 60
-BROADCAST_PERIOD = datetime.timedelta(hours=1)
-BROADCAST_PERIOD_STRING = 'the last hour'
+BROADCAST_PERIOD = datetime.timedelta(days=1)
+BROADCAST_PERIOD_STRING = 'the last day'
 
 # command: ( usage, description )
 HELP = {
