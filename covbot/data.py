@@ -150,6 +150,9 @@ class DataSource:
             scot_data = [r for r in scot if r["Date"] == maxidate]
             scot_region_data = {}
             for r in scot_data:
+                # Fix for GJNH data 2020-04-22 (blank)
+                if r["TotalCases"] == '':
+                    r["TotalCases"] = 0
                 scot_region_data[r["Area"]] = {
                     "cases": int(r["TotalCases"]), "last_update":
                     datetime.datetime.strptime(
@@ -258,7 +261,7 @@ class DataSource:
 
         self.log.info('Updating data.')
         # offloop, nhs, uk, finland = await asyncio.gather(self._get_offloop_cases(), self._get_nhs(), self._get_uk(), self._get_finland())
-        offloop, finland = await asyncio.gather(self._get_offloop_cases(), self._get_finland())
+        offloop, finland, uk_countries, scottish_regions = await asyncio.gather(self._get_offloop_cases(), self._get_finland(), self._get_uk_countries(), self._get_scottish_regions())
 
         # TODO take the max value
         # for area, cases in nhs.items():
@@ -270,6 +273,12 @@ class DataSource:
         for area, cases in finland.items():
             offloop['Finland']['areas'][area] = {
                 'cases': cases, 'last_update': now}
+
+        for r, ukdata in uk_countries.items():
+            offloop['United Kingdom']['areas'][r] = ukdata
+
+        for r, scodata in scottish_regions.items():
+            offloop['United Kingdom']['areas'][r] = scodata
 
         self.cases = offloop
         await asyncio.get_running_loop().run_in_executor(None, self._update_index)
