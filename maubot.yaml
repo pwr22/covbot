@@ -1,6 +1,6 @@
 maubot: 0.1.0
 id: dev.shortestpath.covbot
-version: 0.0.13-pre
+version: 0.1.4
 license: MIT
 modules:
 - covbot
@@ -8,6 +8,7 @@ main_class: CovBot
 dependencies:
 - whoosh
 - pycountry
+- tabulate
 database: false
 extra_files:
 - LICENSE

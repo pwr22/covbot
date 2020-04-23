@@ -15,8 +15,8 @@ Message CovBot and it'll say hello and let you know how to use it. If you want a
 
 ## Contributing
 
-Pull requests are welcome and if you don't have any ideas what to work on then check the [issues](https://github.com/pwr22/covbot/issues) for something to pick up.
+Pull requests are welcome and if you don't have any ideas what to work on then check the [issues](https://github.com/pwr22/covbot/issues) for something to pick up. Feel free to drop into [#covbot:shortestpath.dev](https://matrix.to/#/!awMILboqesCENShaME:shortestpath.dev?via=shortestpath.dev&via=matrix.org&via=thomcat.rocks) to discuss.
 
 ## Self-Hosting
 
-To run your own instance, download the latest release and upload to your [maubot](https://maubot.xyz).
+To run your own, download the latest release and upload to your [maubot](https://maubot.xyz) instance. [Here's](https://www.tmplab.org/2020/04/01/how-to-install-and-run-bots-for-the-matrix-network/) a good guide on getting started!
