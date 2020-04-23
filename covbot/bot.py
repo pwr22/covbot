@@ -26,6 +26,8 @@ from .data import DataSource
 RATE_LIMIT_BACKOFF_SECONDS = 10
 UPDATE_INTERVAL_SECONDS = 15 * 60
 ROOM_PRUNE_INTERVAL_SECONDS = 60 * 60
+BROADCAST_PERIOD = datetime.timedelta(hours=1)
+BROADCAST_PERIOD_STRING = 'the last hour'
 
 # command: ( usage, description )
 HELP = {
@@ -102,6 +104,44 @@ class CovBot(Plugin):
 
             await asyncio.sleep(UPDATE_INTERVAL_SECONDS)
 
+    async def _broadcast_daily_update(self):
+        try:
+            while True:
+                now = datetime.datetime.utcnow()
+                wait = self.next_broadcast_at - now
+                s = wait.total_seconds()
+
+                self.log.info(
+                    f'Sleeping for {s:,} seconds until next broadcast.')
+                await asyncio.sleep(wait.total_seconds())
+
+                # If this is the first update then we won't actually do anything except
+                # save the previous data.
+                prev_data = self.last_broadcast_data
+                if prev_data == None:
+                    self.log.info('First broadcast so just storing data.')
+                    _, self.last_broadcast_data = self.data.get('World').pop()
+                    self.next_broadcast_at = self.next_broadcast_at + BROADCAST_PERIOD
+                    continue
+
+                self.log.info('Broadcasting world update')
+                _, current_data = self.data.get('World').pop()
+                new_cases = current_data['cases'] - prev_data['cases']
+
+                msg = f'There have been {new_cases:,} new cases worldwide in {BROADCAST_PERIOD_STRING}.'
+
+                rooms = await self._handle_rate_limit(lambda: self.client.get_joined_rooms())
+                self.log.info('Sending broadcase update to all %s rooms.',
+                              len(rooms))
+
+                for r in rooms:
+                    await self._message(r, msg)
+
+                self.next_broadcast_at = self.next_broadcast_at + BROADCAST_PERIOD
+                self.last_broadcast_data = current_data
+        except:
+            self.log.error(traceback.format_exc())
+
     @classmethod
     def get_config_class(cls) -> BaseProxyConfig:
         return Config
@@ -111,18 +151,26 @@ class CovBot(Plugin):
         self.config.load_and_update()
 
         self._rooms_joined = {}
+        self._prev_world_totals = None
         self.client.add_dispatcher(MembershipEventDispatcher)  # for room joins
         self.data = DataSource(self.log, self.http)
+        await self.data.update()  # initial pull
+        self.last_broadcast_at = None
+        self.next_broadcast_at = datetime.datetime.utcnow()
+        self.last_broadcast_data = None
 
         # start up our long running tasks
         self._data_update_task = asyncio.create_task(self._update_data())
         self._room_prune_task = asyncio.create_task(self._prune_dead_rooms())
+        self._broadcast_task = asyncio.create_task(
+            self._broadcast_daily_update())
 
     async def stop(self):
         await super().stop()
         self.client.remove_dispatcher(MembershipEventDispatcher)
         self._room_prune_task.cancel()
         self._data_update_task.cancel()
+        self._broadcast_task.cancel()
 
     def _short_location(self, location: str, length=int(12)) -> str:
         """Returns a shortened location name.
