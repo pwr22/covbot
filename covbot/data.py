@@ -113,7 +113,6 @@ class DataSource:
                 latest_data_d = {}
                 # Pivot data to covbot format
                 for r in latest_country_data:
-                    self.log.debug(f"r:\t{r}")
                     latest_data_d[r["Indicator"].lower()] = int(r["Value"])
                     # Rename confirmedcases → cases
                     if "confirmedcases" in latest_data_d:
@@ -144,20 +143,22 @@ class DataSource:
             NB: this could be expanded for other regions if desired
             """
             # Filter to Scotland
-            scot = [r for r in regions_data if r["Country"] == "Scotland"]
-            # Get latest data
-            maxidate = max([r["Date"] for r in scot])
-            scot_data = [r for r in scot if r["Date"] == maxidate]
             scot_region_data = {}
-            for r in scot_data:
-                # Fix for GJNH data 2020-04-22 (blank)
-                if r["TotalCases"] == '':
-                    r["TotalCases"] = 0
-                scot_region_data[r["Area"]] = {
-                    "cases": int(r["TotalCases"]), "last_update":
-                    datetime.datetime.strptime(
-                        f"{maxidate} {UK_COUNTRIES['Scotland']}",
-                        "%Y-%m-%d %H%M %Z")}
+            for country in UK_COUNTRIES.keys():
+                self.log.debug("Country: {}".format(country))
+                scot = [r for r in regions_data if r["Country"] == country]
+                # Get latest data
+                maxidate = max([r["Date"] for r in scot])
+                scot_data = [r for r in scot if r["Date"] == maxidate]
+                for r in scot_data:
+                    # Fix for GJNH data 2020-04-22 (blank)
+                    if r["TotalCases"] == '':
+                        r["TotalCases"] = 0
+                    scot_region_data[r["Area"]] = {
+                        "cases": int(r["TotalCases"]), "last_update":
+                        datetime.datetime.strptime(
+                            f"{maxidate} {UK_COUNTRIES['Scotland']}",
+                            "%Y-%m-%d %H%M %Z")}
 
             return scot_region_data
 
