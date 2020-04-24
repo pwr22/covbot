@@ -20,7 +20,7 @@ NHS_URL = 'https://www.arcgis.com/sharing/rest/content/items/ca796627a2294c51926
 UK_URL = 'https://www.arcgis.com/sharing/rest/content/items/b684319181f94875a6879bbc833ca3a6/data'
 FINLAND_URL = 'https://w3qa5ydb4l.execute-api.eu-west-1.amazonaws.com/prod/finnishCoronaData/v2'
 UK_COUNTRIES_URL = 'https://raw.githubusercontent.com/tomwhite/covid-19-uk-data/master/data/covid-19-indicators-uk.csv'
-UK_SCO_REGIONS_URL = 'https://raw.githubusercontent.com/tomwhite/covid-19-uk-data/master/data/covid-19-cases-uk.csv'
+UK_REGIONS_URL = 'https://raw.githubusercontent.com/tomwhite/covid-19-uk-data/master/data/covid-19-cases-uk.csv'
 
 COUNTRY_RENAMES = {
     'US': 'United States',
@@ -135,42 +135,39 @@ class DataSource:
 
         return uk_country_data
 
-    async def _get_scottish_regions(self) -> dict:
-        """Return dict of Scottish region data"""
-        async def _process_scottish_regions(regions_data: list) -> dict:
-            """Filter region data and process to covbot format
+    async def _get_uk_regions(self) -> dict:
+        """Return dict of UK region data"""
+        async def _process_uk_regions(regions_data: list) -> dict:
+            """Filter region data and process to covbot format"""
+            uk_region_data = {}
 
-            NB: this could be expanded for other regions if desired
-            """
-            # Filter to Scotland
-            scot_region_data = {}
             for country in UK_COUNTRIES.keys():
-                self.log.debug("Country: {}".format(country))
-                scot = [r for r in regions_data if r["Country"] == country]
+                country_regions = [r for r in regions_data if r["Country"] == country]
                 # Get latest data
-                maxidate = max([r["Date"] for r in scot])
-                scot_data = [r for r in scot if r["Date"] == maxidate]
-                for r in scot_data:
+                maxidate = max([r["Date"] for r in country_regions])
+                region_data = [r for r in country_regions if r["Date"] == maxidate]
+                for r in region_data:
                     # Fix for GJNH data 2020-04-22 (blank)
                     if r["TotalCases"] == '':
                         r["TotalCases"] = 0
-                    scot_region_data[r["Area"]] = {
+                    uk_region_data[r["Area"]] = {
                         "cases": int(r["TotalCases"]), "last_update":
                         datetime.datetime.strptime(
-                            f"{maxidate} {UK_COUNTRIES['Scotland']}",
+                            f"{maxidate} {UK_COUNTRIES[country]}",
                             "%Y-%m-%d %H%M %Z")}
 
-            return scot_region_data
+            return uk_region_data
 
-        async with self.http.get(UK_SCO_REGIONS_URL) as r:
+        async with self.http.get(UK_REGIONS_URL) as r:
             t = await r.text()
             lines = t.splitlines()
 
         cr = list(csv.DictReader(lines))
 
-        scottish_region_data = await _process_scottish_regions(cr)
+        uk_region_data = await _process_uk_regions(cr)
 
-        return scottish_region_data
+        return uk_region_data
+
     async def _get_offloop_cases(self):
         countries = {}
         now = time.time() * 1000  # millis to match the data
@@ -262,7 +259,7 @@ class DataSource:
 
         self.log.info('Updating data.')
         # offloop, nhs, uk, finland = await asyncio.gather(self._get_offloop_cases(), self._get_nhs(), self._get_uk(), self._get_finland())
-        offloop, finland, uk_countries, scottish_regions = await asyncio.gather(self._get_offloop_cases(), self._get_finland(), self._get_uk_countries(), self._get_scottish_regions())
+        offloop, finland, uk_countries, uk_regions = await asyncio.gather(self._get_offloop_cases(), self._get_finland(), self._get_uk_countries(), self._get_uk_regions())
 
         # TODO take the max value
         # for area, cases in nhs.items():
@@ -278,8 +275,8 @@ class DataSource:
         for r, ukdata in uk_countries.items():
             offloop['United Kingdom']['areas'][r] = ukdata
 
-        for r, scodata in scottish_regions.items():
-            offloop['United Kingdom']['areas'][r] = scodata
+        for r, regiondata in uk_regions.items():
+            offloop['United Kingdom']['areas'][r] = regiondata
 
         self.cases = offloop
         await asyncio.get_running_loop().run_in_executor(None, self._update_index)
