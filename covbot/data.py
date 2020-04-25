@@ -19,6 +19,8 @@ OFFLOOP_GROUPS_URL = 'https://offloop.net/covid19h/groups.txt'
 NHS_URL = 'https://www.arcgis.com/sharing/rest/content/items/ca796627a2294c51926865748c4a56e8/data'
 UK_URL = 'https://www.arcgis.com/sharing/rest/content/items/b684319181f94875a6879bbc833ca3a6/data'
 FINLAND_URL = 'https://w3qa5ydb4l.execute-api.eu-west-1.amazonaws.com/prod/finnishCoronaData/v2'
+UK_COUNTRIES_URL = 'https://raw.githubusercontent.com/tomwhite/covid-19-uk-data/master/data/covid-19-indicators-uk.csv'
+UK_REGIONS_URL = 'https://raw.githubusercontent.com/tomwhite/covid-19-uk-data/master/data/covid-19-cases-uk.csv'
 
 COUNTRY_RENAMES = {
     'US': 'United States',
@@ -26,6 +28,10 @@ COUNTRY_RENAMES = {
     'UAE': 'United Arab Emirates',
     "U.S. Virgin Islands": "United States Virgin Islands"
 }
+
+# UK constituent countries with their nominal data update times
+UK_COUNTRIES = {"Wales": "1200 GMT", "Scotland": "1400 GMT",
+                "England": "1800 GMT", "Northern Ireland": "1400 GMT"}
 
 SCHEMA = Schema(country=TEXT(stored=True), area=TEXT(
     stored=True), location=TEXT(stored=True))
@@ -81,6 +87,86 @@ class DataSource:
             regions[row['GSS_NM']] = int(row['TotalCases'].replace(',', ''))
 
         return regions
+
+    async def _get_uk_countries(self) -> dict:
+        """Get UK constituent countries: WAL/SCO/ENG/NI
+
+        Data is processed by _process_uk_countries()
+        before being returned as a dict
+        """
+
+        async def _process_uk_countries(uk_countries_data: list) -> dict:
+            """Process to covbot format:
+
+                {Country1: {data1}, Country2: {data2}, ...}
+            """
+            # GB/UK data is processed elsewhere
+            countries_data = {}
+            for country, update_time in UK_COUNTRIES.items():
+                # Filter data to country (ie Wales/Scotland/England/NI)
+                country_data = [r for r in uk_countries_data
+                                if r["Country"] == country]
+                # Find latest (= maximum) date and use that
+                maxidate = max([r["Date"] for r in country_data])
+                latest_country_data = [r for r in country_data
+                                       if r["Date"] == maxidate]
+                latest_data_d = {}
+                # Pivot data to covbot format
+                for r in latest_country_data:
+                    latest_data_d[r["Indicator"].lower()] = int(r["Value"])
+                    # Rename confirmedcases → cases
+                    if "confirmedcases" in latest_data_d:
+                        latest_data_d["cases"] = int(latest_data_d.pop(
+                            "confirmedcases"))
+                        latest_data_d["last_update"] = datetime.datetime.\
+                            strptime(f"{maxidate} {update_time}",
+                                     "%Y-%m-%d %H%M %Z")
+                        countries_data[country] = latest_data_d
+
+            return countries_data
+
+        async with self.http.get(UK_COUNTRIES_URL) as r:
+            t = await r.text()
+            lines = t.splitlines()
+
+        cr = list(csv.DictReader(lines))
+
+        uk_country_data = await _process_uk_countries(cr)
+
+        return uk_country_data
+
+    async def _get_uk_regions(self) -> dict:
+        """Return dict of UK region data"""
+        async def _process_uk_regions(regions_data: list) -> dict:
+            """Filter region data and process to covbot format"""
+            uk_region_data = {}
+
+            for country in UK_COUNTRIES.keys():
+                country_regions = [r for r in regions_data if r["Country"] == country]
+                # Get latest data
+                maxidate = max([r["Date"] for r in country_regions])
+                region_data = [r for r in country_regions if r["Date"] == maxidate]
+                for r in region_data:
+                    # Fix for GJNH data 2020-04-22 (blank)
+                    if r["TotalCases"] == '':
+                        r["TotalCases"] = 0
+                    uk_region_data[r["Area"]] = {
+                        "cases": int(r["TotalCases"]), "last_update":
+                        datetime.datetime.strptime(
+                            f"{maxidate} {UK_COUNTRIES[country]}",
+                            "%Y-%m-%d %H%M %Z")}
+
+            return uk_region_data
+
+        async with self.http.get(UK_REGIONS_URL) as r:
+            t = await r.text()
+            lines = t.splitlines()
+
+        cr = list(csv.DictReader(lines))
+
+        uk_region_data = await _process_uk_regions(cr)
+
+        return uk_region_data
 
     async def _get_offloop_cases(self):
         countries = {}
@@ -173,7 +259,7 @@ class DataSource:
 
         self.log.info('Updating data.')
         # offloop, nhs, uk, finland = await asyncio.gather(self._get_offloop_cases(), self._get_nhs(), self._get_uk(), self._get_finland())
-        offloop, finland = await asyncio.gather(self._get_offloop_cases(), self._get_finland())
+        offloop, finland, uk_countries, uk_regions = await asyncio.gather(self._get_offloop_cases(), self._get_finland(), self._get_uk_countries(), self._get_uk_regions())
 
         # TODO take the max value
         # for area, cases in nhs.items():
@@ -185,6 +271,12 @@ class DataSource:
         for area, cases in finland.items():
             offloop['Finland']['areas'][area] = {
                 'cases': cases, 'last_update': now}
+
+        for r, ukdata in uk_countries.items():
+            offloop['United Kingdom']['areas'][r] = ukdata
+
+        for r, regiondata in uk_regions.items():
+            offloop['United Kingdom']['areas'][r] = regiondata
 
         self.cases = offloop
         await asyncio.get_running_loop().run_in_executor(None, self._update_index)
